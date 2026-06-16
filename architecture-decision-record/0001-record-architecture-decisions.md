@@ -8,9 +8,9 @@ Date: 2026-06-16
 
 ## Context
 
-As we build the Integration Hub, we will collectively making decisions around the architecture, processes, and tooling.
+As we build the Integration Hub, we will collectively make decisions around the architecture, processes, and tooling.
 
-When making these decisions, we should record them, both to help us understand and remember why we made them, and to also act as a reference for onboarding new team members and for anyone who is interested to view.
+When making these decisions, we should record them to help us understand and remember why we made them, and to act as a reference for onboarding new team members and anyone interested in viewing them.
 
 Finally, as outlined in the [Government Design Principles](https://www.gov.uk/guidance/government-design-principles), these should be publicly accessible as [making things open makes things better](https://www.gov.uk/guidance/government-design-principles#make-things-open-it-makes-things-better).
 
