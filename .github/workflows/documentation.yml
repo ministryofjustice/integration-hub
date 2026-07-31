@@ -83,6 +83,7 @@ jobs:
           args: >-
             --verbose --no-progress './**/*.md' './**/*.html' './**/*.erb'
             --accept 403,200,429
+            --exclude '^https://github-community\.service\.justice\.gov\.uk/repository-standards/.*$'
 
   publish:
     if: github.ref == 'refs/heads/main'
