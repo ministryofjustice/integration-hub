@@ -16,7 +16,7 @@ Finally, as outlined in the [Government Design Principles](https://www.gov.uk/gu
 
 ## Decision
 
-We will use Architecture Decision Records, as described by Michael Nygard in the article "[Documenting architecture decisions](http://thinkrelevance.com/blog/2011/11/15/documenting-architecture-decisions)".
+We will use Architecture Decision Records, as described by Michael Nygard in the article "[Documenting architecture decisions](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions)".
 
 ## Consequences
 

@@ -1,0 +1,107 @@
+---
+name: Documentation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "config/**"
+      - "source/**"
+      - ".github/workflows/documentation.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "config/**"
+      - "source/**"
+      - ".github/workflows/documentation.yml"
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ministryofjustice/tech-docs-github-pages-publisher@sha256:8b00235edfa4d1248e3cdd08c022d5f398c7f4abb3315b6078f1e876214a171e # v6.2.0
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        if: github.event.repository.private == false
+        id: harden_runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build
+        id: build
+        run: |
+          /usr/local/bin/package
+
+      - name: Upload Artifact
+        if: github.ref == 'refs/heads/main'
+        id: upload_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: github-pages
+          path: artifact.tar
+          retention-days: 1
+          overwrite: true
+
+  link-checker:
+    if: github.event_name == 'pull_request'
+    name: Link Checker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        if: github.event.repository.private == false
+        id: harden_runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lychee
+        id: lychee
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --verbose --no-progress './**/*.md' './**/*.html' './**/*.erb'
+            --accept 403,200,429
+            --exclude '^https://github-community\.service\.justice\.gov\.uk/repository-standards/.*$'
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    name: Publish
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.configure_pages.outputs.base_url }}
+    permissions:
+      contents: read
+      id-token: write
+      pages: write
+    steps:
+      - name: Configure Pages
+        id: configure_pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Deploy to GitHub Pages
+        id: deploy_pages
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
