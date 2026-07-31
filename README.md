@@ -16,7 +16,7 @@ The custom domain must also be configured in the repository's GitHub Pages setti
 
 ```yaml
 user-guide.integration-hub:
-	ttl: 300
-	type: CNAME
-	value: ministryofjustice.github.io
+  ttl: 300
+  type: CNAME
+  value: ministryofjustice.github.io
 ```
