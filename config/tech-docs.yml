@@ -1,0 +1,16 @@
+---
+host: https://user-guide.integration-hub.service.justice.gov.uk
+show_govuk_logo: false
+service_name: Ministry of Justice Integration Hub
+service_link: /
+enable_search: true
+multipage_nav: true
+collapsible_nav: true
+max_toc_heading_level: 2
+prevent_indexing: false
+show_contribution_banner: true
+github_repo: ministryofjustice/integration-hub
+github_branch: main
+full_service_name: Integration Hub user guide
+show_expiry: true
+show_review_banner: true
