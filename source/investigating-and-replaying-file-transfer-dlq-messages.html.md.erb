@@ -1,0 +1,124 @@
+---
+owner_slack: "#integration-hub"
+title: Investigating and replaying file transfer DLQ messages
+weight: 6
+last_reviewed_on: 2026-09-01
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+This guide is for Integration Hub technical team members investigating and
+replaying a dead-letter queue (DLQ) message from the Integration Hub file
+transfer service.
+
+DLQ messages are retained for 14 days. The queues do not have an automatic
+redrive policy, so replay is a deliberate manual operation. Do not purge a DLQ.
+
+## Before replaying a message
+
+1. Use [Investigating file transfer service issues](investigating-file-transfer-service-issues.html)
+   to identify the failed stage and its root cause.
+2. Fix the root cause before replaying the message. This could be a deployment,
+   configuration, permission or downstream-service issue.
+3. Confirm that replaying the event is appropriate. Do not replay a file in
+   quarantine.
+4. Record the environment, queue name, SQS message ID, event ID, object key,
+   object version ID and the message's error details. Do not copy a message body
+   containing sensitive data into a ticket, Slack or GitHub.
+
+## Identify the failed target
+
+There are two types of DLQ in the service:
+
+| Queue | Contains | Find the target |
+| --- | --- | --- |
+| `integration-hub-file-transfer-eventbridge-default-dlq` | Events that the default EventBridge rules could not deliver. | Use the `RULE_ARN` and `TARGET_ARN` message attributes. `incoming-s3-object-created` targets the file-received adapter; `guardduty-malware-scan-result` targets the scan-result adapter. |
+| `integration-hub-file-transfer-file-transfer-workflow-dlq` | Events that the file-transfer EventBridge rules could not deliver. | Use the `RULE_ARN` and `TARGET_ARN` message attributes. The `file-transfer-workflow`, `file-routing-workflow` and `file-action-dispatch-workflow` rules target the stage, route and file-action adapter respectively. |
+| `integration-hub-file-transfer-lambda-file-received-adapter-dlq` | Failed asynchronous file-received adapter invocations. | Replay to `integration-hub-file-transfer-file-received-adapter`. |
+| `integration-hub-file-transfer-lambda-file-scan-result-recorded-adapter-dlq` | Failed asynchronous scan-result adapter invocations. | Replay to `integration-hub-file-transfer-file-scan-result-recorded-adapter`. |
+| `integration-hub-file-transfer-lambda-stage-dlq` | Failed asynchronous stage invocations. | Replay to `integration-hub-file-transfer-stage`. |
+| `integration-hub-file-transfer-lambda-route-dlq` | Failed asynchronous route invocations. | Replay to `integration-hub-file-transfer-route`. |
+| `file-action-execution-requested-adapter-dlq` | Failed asynchronous file-action adapter invocations. | Replay to `file-action-execution-requested-adapter`. |
+
+For EventBridge DLQ messages, the message attributes include `ERROR_CODE`,
+`ERROR_MESSAGE`, `EXHAUSTED_RETRY_CONDITION` and `RETRY_ATTEMPTS` as well as
+the rule and target ARNs. For Lambda DLQ messages, use `RequestID`, `ErrorCode`
+and `ErrorMessage` to find the failed invocation in the Lambda log group.
+
+## Retrieve and inspect one message
+
+Use the AWS account and environment containing the affected service. Retrieve a
+single message with a visibility timeout long enough to inspect and replay it:
+
+```sh
+aws sqs receive-message \
+  --queue-url "$DLQ_URL" \
+  --max-number-of-messages 1 \
+  --visibility-timeout 1200 \
+  --wait-time-seconds 20 \
+  --message-system-attribute-names All \
+  --message-attribute-names All \
+  --output json > received-message.json
+```
+
+Keep `received-message.json` in a secure working location. It contains the
+current receipt handle needed to delete the SQS message. A receipt handle changes
+each time the message is received.
+
+The SQS message body is the event to replay. Extract it without altering the
+event ID, source, detail type or detail:
+
+```sh
+jq -r '.Messages[0].Body' received-message.json > event.json
+jq -e . event.json > /dev/null
+```
+
+Check that `event.json` is an event for the target identified above. In
+particular, confirm the object key and version ID match the incident. Do not use
+the surrounding SQS message as the Lambda payload.
+
+## Replay the event
+
+Invoke the identified Lambda function asynchronously with the original event:
+
+```sh
+aws lambda invoke \
+  --function-name "$FUNCTION_NAME" \
+  --invocation-type Event \
+  --cli-binary-format raw-in-base64-out \
+  --payload fileb://event.json \
+  replay-response.json
+```
+
+A `202` response means Lambda accepted the replay; it does not mean that the
+function completed successfully. The file-transfer adapters and movers use
+idempotency controls, so replaying the same event will not duplicate a completed
+operation. A replay of a file-action event uses the current matching dispatch
+configuration, so check that configuration before replaying it.
+
+## Verify and remove the message
+
+Use the affected Lambda log group and the EventBridge event-bus log group to
+confirm that the replay completed. For file movement, check that the expected
+object version reached its intended bucket. For clean files with a configured
+action, confirm the `FileActionExecutionRequested.v1` event was published.
+
+Delete the DLQ message only after those checks succeed, using the current receipt
+handle from `received-message.json`:
+
+```sh
+aws sqs delete-message \
+  --queue-url "$DLQ_URL" \
+  --receipt-handle "$RECEIPT_HANDLE"
+```
+
+If the replay does not complete, do not delete the message. Let its visibility
+timeout expire or extend it while the investigation continues. Do not replay the
+same message repeatedly before understanding the latest failure.
+
+## Preserve the record
+
+Record the incident reference, queue, message ID, target, replay time, event ID,
+object key, object version ID and verification outcome. Remove local copies of
+`received-message.json` and `event.json` once they are no longer needed.
