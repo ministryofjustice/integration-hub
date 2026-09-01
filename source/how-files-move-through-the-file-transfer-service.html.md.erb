@@ -1,0 +1,52 @@
+---
+owner_slack: "#integration-hub"
+title: How files move through the file transfer service
+weight: 4
+last_reviewed_on: 2026-09-01
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+The Integration Hub file transfer service receives a file, checks it for
+malware and sends it to the right destination. This happens automatically after
+you upload a file using SFTP or FTPS.
+
+## What happens after you upload a file
+
+1. Your file arrives in a private receiving area. The service confirms that it
+   has received the exact version that you uploaded.
+2. The file moves to a secure processing area for a malware scan.
+3. The scan result determines where the file goes next:
+   * clean files move to the receiving service's destination
+   * files that may contain malware move to quarantine
+   * files with an unclear or unsupported scan result move to an investigation
+     area
+4. For a clean file, the Integration Hub can start the configured action or
+   send the configured notification to the receiving service.
+
+At each stage, the service checks that the destination has the exact file that
+was uploaded before removing the source copy. Your uploaded file is therefore
+moved through the service; it does not remain in the upload folder after it has
+moved to processing. The same applies when the file moves from processing to
+its clean, quarantine or investigation destination.
+
+## What you need to do
+
+Wait for your file-transfer client to confirm the upload has completed before
+closing it. Keep your local copy until the receiving service confirms it has
+processed the file.
+
+You cannot view, download or replace a file after upload. This protects the
+integrity of the transfer and helps the receiving service work with the file it
+expects.
+
+## If the receiving service cannot find a file
+
+First check that the upload completed and that you used the correct username,
+environment and destination folder. Then contact the receiving service with the
+file name, upload time and environment.
+
+If the receiving service asks you to involve the Integration Hub team, post in
+`#ask-integration-hub`. Include the username, file name, upload time with time
+zone, environment and protocol used. Do not share passwords or private keys.

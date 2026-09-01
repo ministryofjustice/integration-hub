@@ -1,0 +1,95 @@
+---
+owner_slack: "#integration-hub"
+title: Investigating file transfer service issues
+weight: 5
+last_reviewed_on: 2026-09-01
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+This guide is for Integration Hub technical team members investigating a file
+in the Integration Hub file transfer service that has not reached its expected
+destination. It covers finding where the file stopped. For dead-letter queue
+(DLQ) messages, see
+[Investigating and replaying file transfer DLQ messages](investigating-and-replaying-file-transfer-dlq-messages.html).
+
+## Collect the file details
+
+Before investigating, obtain the environment, username, object key or file
+name, upload timestamp with time zone, and the client's protocol. Where
+possible, obtain the S3 object version ID. Search using the object key and
+version ID rather than just the file name, as different users can upload files
+with the same name.
+
+## Trace the file through the service
+
+Use the file's object key, version ID and timestamp to work through these
+stages in order:
+
+1. **AWS Transfer Family and incoming bucket**: confirm that the AWS Transfer
+   Family server accepted the upload. Check the structured Transfer log group,
+   `/aws/transfer/integration-hub-file-transfer`, then confirm the expected
+   object version is in the `incoming` bucket.
+2. **File received event**: check the default EventBridge rule named
+   `incoming-s3-object-created` and the
+   `integration-hub-file-transfer-file-received-adapter` Lambda log group. This
+   adapter converts the S3 notification into the canonical `FileReceived.v1`
+   event.
+3. **Staging**: check the `integration-hub-file-transfer` EventBridge bus for
+   the `FileReceived.v1` event and the
+   `integration-hub-file-transfer-stage` Lambda log group. The stage function
+   copies the exact object version from `incoming` to the `processing` bucket,
+   where it is prepared for scanning.
+4. **Malware scan**: inspect the object in the `processing` bucket and its
+   GuardDuty Malware Protection tags. Check the default EventBridge rule named
+   `guardduty-malware-scan-result` and the
+   `integration-hub-file-transfer-file-scan-result-recorded-adapter` Lambda log
+   group. The adapter publishes `FileScanResultRecorded.v1` after associating
+   the scan result with the staged file.
+5. **Routing**: check the `FileScanResultRecorded.v1` event on the
+   `integration-hub-file-transfer` EventBridge bus and the
+   `integration-hub-file-transfer-route` Lambda log group. The route function
+   moves the exact processing-object version to `clean`, `quarantine` or
+   `investigation` storage.
+6. **Clean-file action**: for a file in the `clean` bucket, check the
+   `FileRouted.v1` event and the `file-action-execution-requested-adapter`
+   Lambda log group. The adapter finds the most specific dispatch configuration
+   for the object key and publishes a `FileActionExecutionRequested.v1` event.
+
+The EventBridge bus writes full event details to the CloudWatch log group:
+
+```
+/aws/vendedlogs/events/event-bus/integration-hub-file-transfer
+```
+
+This is useful when the Lambda logs show that an expected event was not
+received. EventBridge also retains an archive of file-transfer events for the
+configured log-retention period.
+
+## Interpret the destination
+
+| Destination | Meaning | Investigation focus |
+| --- | --- | --- |
+| `clean` | GuardDuty recorded a clean scan result and the route completed. | Check `FileRouted.v1`, dispatch matching and the downstream action or notification. |
+| `quarantine` | GuardDuty identified potential malware. | Treat the file as potentially malicious. Check the scan result and follow the security incident process. |
+| `investigation` | The file could not be routed as clean or quarantined, for example because the scan result was unclear or unsupported. | Check GuardDuty scan details, the scan-result adapter and route Lambda logs. |
+| `incoming` or `processing` only | The file has not yet completed a later stage. | Continue the trace from the first stage that does not have the expected event or log entry. |
+
+## Check service health
+
+CloudWatch alarms cover errors, throttles and long-running invocations for the
+file-received adapter, scan-result adapter, stage, route and file-action
+adapter. They also cover failed EventBridge target invocations, GuardDuty scan
+failures and DynamoDB throttling. Use the alarm timestamp to narrow the log
+search and identify the affected stage.
+
+The configured alarm definitions are in
+[`locals-cloudwatch.tf`](https://github.com/ministryofjustice/modernisation-platform-environments/blob/main/terraform/environments/integration-hub-file-transfer/locals-cloudwatch.tf).
+
+## Preserve investigation evidence
+
+Record the environment, username, object key, object version ID, timestamps,
+observed bucket location, relevant EventBridge event IDs and non-sensitive log
+messages. Do not place file content, passwords, private keys or Secrets Manager
+values in tickets, Slack or logs.
