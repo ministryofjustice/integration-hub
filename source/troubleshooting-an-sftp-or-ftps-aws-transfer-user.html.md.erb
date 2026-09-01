@@ -1,0 +1,114 @@
+---
+owner_slack: "#integration-hub"
+title: Troubleshooting an SFTP or FTPS AWS Transfer user
+weight: 3
+last_reviewed_on: 2026-09-01
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+This guide is for Integration Hub technical team members supporting an AWS
+Transfer Family user backed by the custom identity provider (IdP).
+
+## Service behaviour
+
+Each configured user has a Secrets Manager secret at:
+
+```
+integration-hub-file-transfer/<environment>/transfer-users/<username>
+```
+
+The custom IdP lowercases the requested username, reads this secret and checks
+the username, source IP address and Transfer server ID before authenticating
+the user. The user is placed in a logical home directory that maps to:
+
+```
+/<incoming-bucket>/<username>
+```
+
+The session policy permits listing that directory and uploading objects beneath
+it. It does not permit downloading, deleting or accessing other users'
+directories.
+
+Terraform creates the initial user secret from `transfer_server_users` in
+[`locals-transfer.tf`](https://github.com/ministryofjustice/modernisation-platform-environments/blob/main/terraform/environments/integration-hub-file-transfer/locals-transfer.tf).
+It deliberately ignores later secret-value changes, so credentials stay out of
+Terraform state.
+
+## Create or change a user
+
+1. Add the user to `transfer_server_users` for the required environment. Use a
+   lowercase username, list the permitted CIDR ranges and provide SFTP public
+   keys where needed.
+2. Apply the Terraform change. This creates the user secret and matching
+   security-group ingress rules.
+3. Retrieve the generated secret using the approved privileged access route.
+   Add or rotate the password only in Secrets Manager, retaining every required
+   field. Never add passwords or private keys to Terraform, a pull request,
+   logs or Slack.
+4. Ask the user to test from an allowed source IP address, then verify the
+   Transfer server and custom IdP logs.
+
+The secret must be a JSON object with this shape:
+
+```json
+{
+  "username": "example-user",
+  "password": null,
+  "publicKeys": ["ssh-ed25519 AAAA..."],
+  "ipv4_allow_list": ["203.0.113.0/24"],
+  "server_id_allow_list": []
+}
+```
+
+An empty `server_id_allow_list` permits the user on any Transfer server. An
+empty `publicKeys` is valid only when the client authenticates with a configured
+password. Keep the secret username lowercase: the custom IdP normalises login
+names to lowercase before comparing them.
+
+## Diagnose authentication failures
+
+Start with the AWS Transfer server's structured CloudWatch logs, then inspect
+the custom IdP Lambda log group for the same username, server ID and time. The
+Lambda returns an empty response to Transfer Family for any authentication
+failure, so the Transfer client normally reports a generic login failure. The
+Lambda log records the specific reason without logging credentials.
+
+| Symptom or log message | Likely cause | Resolution |
+| --- | --- | --- |
+| `User secret does not exist` | The username is absent from `transfer_server_users`, the Terraform change has not been applied, or the login name is wrong. | Check the generated secret name and use the lowercase username. |
+| `User secret is empty`, `not valid JSON` or a required field is invalid | The secret has been overwritten, malformed or only partly updated. | Restore a complete JSON object with string-list values for `publicKeys`, `ipv4_allow_list` and `server_id_allow_list`. |
+| `User secret username does not match request` | The `username` field does not match the lowercased login name. | Correct the field and retry. |
+| `Source IP is missing` or `Source IP is not allowed for this user` | The client is behind an unlisted NAT address, or the user is connecting from a new address. | Confirm the public egress IP and add the smallest necessary CIDR range in `transfer_server_users`; apply Terraform. |
+| Connection times out before authentication | The source IP does not have a matching security-group rule, or a client or network firewall blocks the port. | Confirm the applied CIDR rule and permit SFTP port `22`, or FTPS port `21` plus passive ports `8192` to `8200`. |
+| `User ... is not allowed on this server` | The server ID is not in `server_id_allow_list`. | Add the intended Transfer server ID, or use an empty list only when access to all Transfer servers is intended. |
+| `No public keys configured for user` | The client attempted public-key authentication but the secret has no key. | Add the user's valid SSH public key to `publicKeys`. |
+| `Password is not configured for user` or `Password does not match` | The client supplied a password that is missing or incorrect. | Set or rotate the `password` field directly in Secrets Manager using the approved secret-sharing process. |
+| Login works but upload fails or the expected path is unavailable | The client is outside its logical home directory or is attempting an unsupported operation. | Upload beneath the user's home directory. The service is upload-only and confines users to `<incoming-bucket>/<username>/`. |
+
+## FTPS connection
+
+The Transfer server supports both SFTP and FTPS. FTPS uses the ACM certificate
+for `ftps.file-transfer.service.justice.gov.uk` in production, with DNS
+validation and automatic certificate renewal managed by Terraform. Non-production
+environments use the corresponding `ftps.<environment>.file-transfer.service.justice.gov.uk`
+hostname.
+
+Users must connect using explicit FTPS with TLS on port `21`. The server uses an
+automatically selected passive IP address; permit the passive data-port range
+`8192` to `8200` on the client network and in any intervening firewall. Do not
+support plain FTP or implicit FTPS.
+
+For a TLS or certificate error, first verify that the client uses the FTPS
+hostname, rather than an IP address or the SFTP hostname. Check that the
+certificate is issued and attached to the Transfer server, then confirm the
+client trusts the public certificate chain. For a successful login followed by
+a directory listing or upload timeout, investigate passive data-port access.
+
+## Escalation evidence
+
+When escalating, collect the environment, server ID, username, protocol,
+timestamp with time zone, client public egress IP and the non-sensitive client
+error. Include the relevant Transfer and custom IdP CloudWatch log events. Do
+not include passwords, private keys or the full contents of a user secret.

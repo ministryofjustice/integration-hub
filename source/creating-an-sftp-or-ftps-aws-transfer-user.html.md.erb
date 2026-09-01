@@ -1,0 +1,69 @@
+---
+owner_slack: "#integration-hub"
+title: Creating an SFTP or FTPS AWS Transfer user
+weight: 2
+last_reviewed_on: 2026-09-01
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+The Integration Hub file transfer service lets you send files to
+another Ministry of Justice service. Each user has their own private upload
+folder and can upload files only; they cannot view, download or change files
+after upload.
+
+## Before you request a user
+
+Decide which transfer method you need:
+
+* Use SFTP if your file-transfer client supports SSH keys. This is the
+  recommended method.
+* Use FTPS only when your client cannot use SFTP. FTPS needs a password and
+  access to additional network ports.
+
+You also need to provide:
+
+* a lowercase username, made up of letters, numbers, hyphens or underscores
+* the environment you need to use, such as development or production
+* the public IP addresses or CIDR ranges from which you will connect
+* an SSH public key for SFTP access
+* a technical contact who can test the connection
+
+Do not send a password or SSH private key in Slack, email or a GitHub issue.
+
+## Request a user
+
+Post in the `#ask-integration-hub` Slack channel with the required information.
+The Integration Hub team will confirm the username, source network and target
+environment, then create the user and arrange password setup where it is
+needed.
+
+The service is available to Ministry of Justice services. You may request
+access for a third party that needs to send files to your service.
+
+## Connect to the service
+
+Use the hostname for the protocol and environment supplied by the Integration
+Hub team. Production hostnames are:
+
+* SFTP: `sftp.file-transfer.service.justice.gov.uk` on port `22`
+* FTPS: `ftps.file-transfer.service.justice.gov.uk` on port `21`
+
+For FTPS, your network must also permit passive data connections on ports
+`8192` to `8200`.
+
+Use explicit FTPS with TLS. Do not select plain FTP or implicit FTPS in your
+client.
+
+When you sign in, you start in your own upload folder. Upload the file to that
+folder and wait for your client to report that the transfer completed. The
+service cannot show you the file afterwards, so retain your local copy until
+the receiving service confirms it has processed the file.
+
+## Getting help
+
+For a new user, changed IP address, replacement SSH key or connection problem,
+post in `#ask-integration-hub`. Include the username, environment, protocol,
+connection time and the error message. Do not include passwords or private
+keys.
