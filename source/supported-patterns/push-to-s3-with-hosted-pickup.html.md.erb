@@ -30,8 +30,8 @@ service](../how-files-move-through-the-file-transfer-service.html).
 
 For this pattern, the clean-file action will then:
 
-1. publish a request through the Integration Hub notification and queueing
-   services
+1. route a matching event through the Integration Hub SNS \> SQS \> 
+Lambda that serves this pattern
 2. use a managed function to copy the file to your hosted pickup bucket
 3. encrypt the file with a dedicated AWS Key Management Service (KMS) key
 4. make the file available for your service to retrieve from the bucket
