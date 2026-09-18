@@ -2,7 +2,7 @@
 owner_slack: "#integration-hub"
 title: Push to S3 with hosted pickup
 weight: 1
-last_reviewed_on: 2026-09-18
+last_reviewed_on: 2026-09-04
 review_in: 3 months
 ---
 
@@ -12,12 +12,13 @@ review_in: 3 months
 > receive, scan and route clean files. The hosted S3 pickup capability is not
 > yet available to customers.
 
-Push to S3 with hosted pickup is a planned way for you to collect your
-processed files from an S3 bucket. We will provide a private S3 bucket,
-encryption and a read-only role for your service to retrieve its files.
+Push to S3 with hosted pickup is a planned way for you to collect
+your processed files from an S3 bucket. The Integration
+Hub will provide a private S3 bucket, encryption and a read-only role for your
+service to retrieve its files.
 
-Use this pattern when your service already collects files from S3, or you do
-not want to operate an SFTP or FTPS server to receive them.
+Use this pattern when your service can collect files from S3 and you do not
+want to operate an SFTP or FTPS server to receive them.
 
 ## How the pattern works
 
@@ -29,30 +30,31 @@ service](../how-files-move-through-the-file-transfer-service.html).
 
 For this pattern, the clean-file action will then:
 
-1. route a matching event through the Integration Hub SNS \> SQS \>
-   Lambda services for this pattern
-2. use the Lambda function to copy the file to your hosted pickup bucket
+1. route a matching event through the Integration Hub SNS \> SQS \> 
+   Lambda that serves this pattern
+2. use a managed function to copy the file to your hosted pickup bucket
 3. encrypt the file with a dedicated AWS Key Management Service (KMS) key
-4. make the file available for you to retrieve from the bucket
+4. make the file available for your service to retrieve from the bucket
 
-We manage the notification services, queue, function, S3 bucket and KMS key.
-You do not need to deploy or operate these components.
+The Integration Hub will manage the notification services, queue, function,
+S3 bucket and KMS key. Your service does not need to deploy or operate these
+components.
 
 ## What your service receives
 
-We will provide a read-only IAM role for your service. Your technical team can
-use the role to list and download files from the hosted pickup bucket. It will
-have the permissions needed to read the files and decrypt them with the hosted
-KMS key.
+The Integration Hub will provide a read-only IAM role for your service. Your
+technical team will use the role to list and download files from the hosted
+pickup bucket. It will have the permissions needed to read the files and
+decrypt them with the hosted KMS key.
 
-You will need to nominate the workload or identity that will retrieve the
-files. We will configure the hosted role to trust that source and agree the
-mapping between your incoming transfer user or folder and hosted pickup
-location during setup.
+Your service will need to nominate the workload or identity that will retrieve
+the files. The Integration Hub will configure the hosted role to trust that
+source and agree the mapping between your incoming transfer user or folder and
+hosted pickup location during setup.
 
 Files become available only after the malware scan completes successfully.
-Keep track of the files you retrieve and agree your retention requirements with
-us during setup.
+Your service should record the files it has retrieved and agree its retention
+requirements with the Integration Hub team during setup.
 
 ## Discuss this pattern
 
