@@ -1,0 +1,94 @@
+---
+owner_slack: "#integration-hub"
+title: Push to S3
+weight: 2
+last_reviewed_on: 2026-09-18
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+> This is a draft supported pattern. The file transfer service can already
+> receive, scan and route clean files. Delivery to a customer-owned S3 bucket
+> is not yet available to customers.
+
+Push to S3 is a planned way for the Integration Hub to deliver your processed
+files to an S3 bucket that your service owns in an AWS account you administer.
+Use this pattern when your service wants to receive files in its own S3 bucket.
+
+## How the pattern works
+
+![A FileActionExecutionRequested event matching this pattern passes through SNS and SQS to a Lambda function. The function assumes an Integration Hub delivery role and copies the object to a customer-owned S3 bucket in another AWS account.](/images/supported-patterns-push-to-s3/push-to-s3.png)
+
+The existing file-transfer journey stays the same until a file is confirmed as
+clean. For more detail, see [how files move through the file transfer
+service](../how-files-move-through-the-file-transfer-service.html).
+
+For this pattern, the clean-file action will then:
+
+1. route a matching event through the Integration Hub SNS \> SQS \>
+   Lambda that serves this pattern
+2. use a managed function to assume a dedicated delivery role in the
+   Integration Hub file transfer AWS account
+3. copy the file to the customer-owned destination bucket
+4. write a `FileActionExecutionCompleted` event after the delivery attempt,
+   whether the copy succeeds or fails
+
+The function will process a copy as successful only after it has processed the
+complete S3 copy response.
+
+The Integration Hub will manage the notification services, queue, function and
+delivery role. Your service will manage the destination bucket and control who
+can access its files.
+
+The proposed destination object key will match the source object key. Your
+service may choose an optional destination prefix during setup. The Integration
+Hub will add this prefix before the source object key.
+
+> For example, `your-username/example-file.txt` will become
+> `destination-prefix/your-username/example-file.txt` when you use a
+> destination prefix.
+
+## Set up your destination bucket
+
+The Integration Hub will provide the Amazon Resource Name (ARN) of its delivery
+role. Your team must add a bucket-policy statement that allows that role to put
+objects only in the agreed destination bucket and, if used, destination prefix.
+The policy does not need to grant the delivery role read, list or delete access
+to your objects.
+
+If your bucket uses a customer-managed AWS Key Management Service (KMS) key,
+your team must also update its key policy to allow the delivery role to use the
+key to encrypt the delivered objects. An AWS managed `aws/s3` key cannot grant
+this cross-account access.
+
+For large files, the delivery function may use multipart copy. The Integration
+Hub team will tell you about any additional destination-bucket permissions
+needed to complete or clean up multipart copies.
+
+Keep encryption at rest and Block Public Access enabled on your destination
+bucket. Your service owns the bucket's lifecycle and retention configuration,
+as well as its S3 storage, request, data-transfer and KMS costs.
+
+## Information needed for setup
+
+To configure this pattern, the Integration Hub team will need:
+
+* the destination AWS account ID, S3 bucket name and AWS Region
+* an optional destination prefix
+* the ARN of the customer-managed KMS key, if your bucket uses one
+* the environment you need, such as development or production
+* your expected file volume, size and delivery frequency
+* a technical contact who can update the bucket and KMS key policies
+
+## Discuss this pattern
+
+This pattern is still in design. To discuss whether it is suitable for your
+service, post in `#ask-integration-hub` with the setup information above.
+
+Do not include passwords, private keys, file contents or other sensitive data.
+
+## Getting help
+
+For a question about this draft pattern, post in `#ask-integration-hub`.
+Include the destination bucket, environment and a description of the issue.
