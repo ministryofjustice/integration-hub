@@ -13,8 +13,9 @@ review_in: 3 months
 > is not yet available to customers.
 
 Push to S3 is a planned way for the Integration Hub to deliver your processed
-files to an S3 bucket that your service owns in an AWS account you administer. Use this
-pattern when your service wants to receive files in its own S3 bucket.
+files to an S3 bucket that your service owns in an AWS account you administer.
+Use this pattern when your service already receives files from S3, or you want
+them in your own AWS account.
 
 ## How the pattern works
 
@@ -27,51 +28,50 @@ service](../how-files-move-through-the-file-transfer-service.html).
 For this pattern, the clean-file action will then:
 
 1. route a matching event through the Integration Hub SNS \> SQS \>
-   Lambda that serves this pattern
-2. have the Lambda function assume a dedicated delivery role in the
+   Lambda services for this pattern
+2. use the Lambda function to assume a dedicated delivery role in the
    Integration Hub file transfer AWS account
-3. copy the file to the customer-owned destination bucket
+3. copy the file to your destination bucket
 4. write a `FileActionExecutionCompleted` event after the delivery attempt,
    whether the copy succeeds or fails
 
-The function will treat a copy as successful only after it has processed the
-complete S3 copy response.
+We will treat a copy as successful only after we have processed the complete
+S3 copy response.
 
-The Integration Hub will manage the notification services, queue, function and
-delivery role. Your service will manage the destination bucket and control who
-can access its files.
+We manage the notification services, queue, function and delivery role. You
+manage your destination bucket and decide who can access its files.
 
-The proposed destination object key will match our source object key. You
-may choose an optional destination prefix during setup. The Integration Hub
-will add this prefix before the source object key.
+We will keep the file's original object key when we copy it to your bucket. You
+can choose an optional destination prefix during setup; we will put it before
+the original object key.
 
-> E.G. `your-username/example-file.txt` will become `destination-prefix/example-file.txt`
-> if a destination prefix is used.
+> For example, `your-username/example-file.txt` becomes
+> `destination-prefix/your-username/example-file.txt` when you use a
+> destination prefix. No mystery folder required.
 
-## Set up your destination bucket
+## What you need to set up
 
-The Integration Hub will provide the Amazon Resource Name (ARN) of its delivery
-role. Your team must add a bucket-policy statement that allows that role to put
-objects only in the agreed destination bucket and, if used, destination prefix.
-The policy does not need to grant the delivery role read, list or delete access
-to your objects.
+We will give you the Amazon Resource Name (ARN) of our delivery role. Your team
+must add a bucket-policy statement allowing that role to put objects only in the
+agreed bucket and, if you use one, destination prefix. The role does not need
+read, list or delete access to your objects.
 
 If your bucket uses a customer-managed AWS Key Management Service (KMS) key,
-your team must also update its key policy to allow the delivery role to use the
-key to encrypt the delivered objects. An AWS managed `aws/s3` key cannot grant
-this cross-account access.
+your team must also update its key policy to allow our delivery role to use the
+key to encrypt the delivered objects. An AWS managed `aws/s3` key cannot give
+us this cross-account access.
 
 For large files, the delivery function may use multipart copy. The Integration
-Hub team will tell you about any additional destination-bucket permissions
-needed to complete or clean up multipart copies.
+Hub team will tell you about any extra destination-bucket permissions needed to
+complete or clean up multipart copies.
 
 Keep encryption at rest and Block Public Access enabled on your destination
-bucket. Your service owns the bucket's lifecycle and retention configuration,
-as well as its S3 storage, request, data-transfer and KMS costs.
+bucket. You own its lifecycle and retention configuration, as well as its S3
+storage, request, data-transfer and KMS costs.
 
 ## Information needed for setup
 
-To configure this pattern, the Integration Hub team will need:
+To set up this pattern, send the Integration Hub team:
 
 * the destination AWS account ID, S3 bucket name and AWS Region
 * an optional destination prefix
