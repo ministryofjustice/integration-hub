@@ -2,95 +2,164 @@
 owner_slack: "#integration-hub"
 title: Ways of working
 weight: 3
-last_reviewed_on: 2026-09-21
+last_reviewed_on: 2026-09-25
 review_in: 3 months
 ---
 
 # <%= current_page.data.title %>
 
-This is our agreement about how we work together. It is not a rulebook. It is a
-starting point for being clear, kind, and dependable when the work is easy and
-when it is not.
+This page describes how we work together as the Integration Hub team. It is not
+a rulebook. It is a shared agreement that helps each of us do our best work,
+and keeps us aligned in how we deliver, whether the work is easy or not.
+
+## What matters to us
+
+* **Kindness and trust**: we assume good intent and are generous with our time
+  and patience.
+* **Openness**: we share what we are learning and make our decisions easy to
+  find.
+* **Quality**: we take pride in building things that are secure, reliable and
+  easy for others to understand.
+* **A sustainable pace**: we work in a way we can keep up, so we can keep doing
+  good work.
 
 ## Working together
 
-We turn cameras on by default in team meetings because it makes conversation
-easier.
+We turn cameras on by default in team meetings. Seeing each other makes
+conversation easier and helps us feel like a team.
 
-We use our Slack status and calendars to make availability visible.
-This helps people plan work without having to guess whether someone is 
-available. 
+We keep our Slack status and calendars up to date, so people can plan work
+without having to guess who is around. Nobody is expected to reply outside
+their working hours or while their status says they are away.
 
-Nobody is expected to reply outside their working hours or while 
-their status says they are away.
+When a conversation, meeting or huddle leads to a decision, action or useful
+learning, write it down where the people affected can find it.
 
-We make room for everyone to contribute. Ask questions, say when something is
-unclear and challenge ideas to make things better for everyone.
+## Looking after ourselves and each other
 
-When a meeting or huddle produces a decision, action or useful learning, we
-write it down where the people affected can find it.
+Delivering well matters, but not at the expense of anyone's wellbeing. If you
+are feeling overloaded, stuck or unwell, tell someone. We would much rather
+change the plan than have someone struggle quietly.
+
+Take your breaks and your leave, and switch off at the end of your day.
+
+### Learning from mistakes
+
+Things will sometimes go wrong. When they do, we focus on understanding what
+happened and improving how we work. Raising a mistake early is always welcome:
+it helps us fix things sooner and learn together.
+
+### Learning and development
+
+The organisation offers 10% of our time for learning and development, and we
+want everyone to use it. It is not a reward for finishing other work first. It
+is part of how we grow as individuals and as a team. Plan it in, let the team
+know what you are exploring and share anything useful you learn.
+
+### Celebrating wins
+
+We take time to notice progress, big and small: a feature shipped, a tricky
+problem solved or a colleague who went out of their way to help. Share your
+thanks in Slack, at stand-up or in a retrospective.
 
 ## Slack
 
-Use `#integration-hub-team` for team discussion, coordination, and sharing what we
-are learning.
+Slack is where most of our day-to-day collaboration happens.
 
-Use `#ask-integration-hub` for questions and requests from people
-using, or planning to use, our services.
+* Use `#integration-hub-team` for team discussion, coordination and, sharing
+  what we are learning.
+* Use `#ask-integration-hub` for questions and requests from people using, or
+  planning to use, our services.
 
 Slack is asynchronous. If you need an answer by a particular time, say when and
-explain why.
+why, so people can prioritise.
 
-We do our best to acknowledge customer questions during working hours and say
-what will happen next. The Integration Hub is not yet a live service, so this
-expectation will develop with our customers' needs.
+We do our best to acknowledge customer questions during working hours and let
+people know what will happen next. The Integration Hub is not yet a live
+service, so this will develop with our customers' needs.
 
-Keep follow-up discussion in a thread when it helps the channel remain easy to
-scan. Do not put passwords, private keys, file contents or other sensitive data
-in Slack.
+Use threads to keep channels easy to follow. Never share passwords, private
+keys, file contents or other sensitive data in Slack.
 
 ## GitHub
 
-GitHub is central to our work. We store our code here, hold our product backlog 
-here, and run our CI/CD pipelines here.
+GitHub is where our code, CI/CD pipelines and product backlog live. If work
+needs an owner, a decision or a useful history, it belongs in GitHub.
 
-GitHub is where we keep work that needs an owner, a decision or a useful
-history. Pull requests should explain the outcome they change and how the
-change was checked. Link the issue, architecture decision record or discussion
-that explains why the work matters.
+When something is blocked, say so on the issue. When it is resolved, close the
+loop where people are already following the work. Nobody should have to piece
+together a decision from half a dozen old Slack threads and a meeting they did
+not attend.
 
-When something is blocked, say so. When it is resolved, close the loop where
-people are already following the work. Nobody should need to reconstruct a
-decision from half a dozen old Slack threads and a meeting they did not attend.
+### Pull requests and reviews
 
-### GitHub Repositories
+A good pull request helps the reviewer understand the change quickly. Explain
+what it changes and why, how you checked it, and link to the issue,
+architecture decision record or discussion behind it. Smaller pull requests
+are easier to review well.
+
+Every pull request is reviewed by a team member other than its author.
+Reviewing is everyone's job: if you see a pull request waiting, pick it up
+rather than waiting for someone else to. Be kind and specific in your comments,
+and ask when you do not understand something.
+
+Once a pull request is approved, its author will generally merge it, so the
+person with the most context sees the change through.
+
+### Our repositories
 
 * [Integration Hub](https://github.com/ministryofjustice/integration-hub)
- \- Our product backlog and documentation lives here.
+  holds our product backlog and documentation.
 * [Modernisation Platform Environments](https://github.com/ministryofjustice/modernisation-platform-environments/)
- \- Our infrastructure code lives here.
-* You can find our other repositories prefixed with `integration-hub` [here](https://github.com/orgs/ministryofjustice/repositories).
+  holds our infrastructure code.
+* Our other repositories are prefixed with `integration-hub`.
+  [Find them in the Ministry of Justice GitHub organisation](https://github.com/orgs/ministryofjustice/repositories?q=integration-hub).
+
+## Building in quality
+
+We build quality in as we go, rather than checking for it at the end.
+
+* **Automated tests and CI**: we add or update tests alongside our changes and
+  do not merge while CI checks are failing.
+* **Documentation alongside code**: if a change affects how something is
+  built, run or used, we update the documentation in the same piece of work.
+* **Security and data protection by default**: we think about access, secrets,
+  encryption and personal data from the start, and keep credentials out of
+  code, pull requests, logs and Slack.
+* **Decisions in the open**: we discuss significant decisions openly, then
+  record them as
+  [architecture decision records](https://github.com/ministryofjustice/integration-hub/tree/main/architecture-decision-record)
+  so the reasoning stays visible.
 
 ## Ceremonies
 
-We work on a fortnightly cadence. Our ceremonies give us time to agree
-priorities, make progress visible and improve how we work together.
+We work in fortnightly cycles. Our ceremonies give us regular time together to
+agree priorities, make progress visible and improve how we work.
 
 | Ceremony | Occurrence | Purpose |
 | --- | --- | --- |
-| Stand-up | Monday to Thursday | Share progress, raise blockers and agree what needs a follow-up conversation. |
-| Backlog refinement | Fortnightly | Make upcoming work clear enough to discuss and plan. |
-| Planning | Fortnightly | Agree the work we will focus on in the next fortnight. |
-| Retrospective | Last Friday | Reflect on how we worked and choose improvements to try. |
-| Show and tell | Last Thursday | Share progress and learning with colleagues and interested people. |
+| Stand-up | Monday to Thursday | Catch up, share progress and blockers, and agree who needs to talk afterwards. |
+| Backlog refinement | Fortnightly | Talk through upcoming work together so it is clear enough to plan. |
+| Planning | Fortnightly | Agree what we will focus on over the next fortnight. |
+| Retrospective | Last Friday | Reflect on how we have worked together, celebrate what went well and choose something to improve. |
+| Show and tell | Last Thursday | Share our progress and learning with colleagues and stakeholders. |
 
-Stand-up is for coordination, not a status performance. Keep updates brief and
-move detailed problem-solving to a follow-up conversation.
+Stand-up is for coordinating, not for proving how busy we are. Keep updates
+short and pick up detailed problem-solving afterwards with the people who need
+to be involved.
 
-Before refinement, read the work likely to be discussed and bring questions.
-Work is ready to plan when people understand the outcome, the important risks
-and what needs to be true for it to be complete.
+Before refinement, look at the work likely to come up and bring your
+questions. Work is ready to plan when we understand the outcome, the important
+risks and what needs to be true for it to be done.
 
-Retrospectives look at how we work, what works well, and how we can remove friction.
+Retrospectives are a safe space to talk honestly about how we work: what is
+going well, what is getting in the way and what we would like to try next. We
+follow up on the actions we agree.
 
-Show and tell is where we show progress openly for external stakeholders to come and see.
+Show and tell is where we share our work openly. Anyone interested is welcome,
+and it is a good moment to recognise what we have achieved together.
+
+## Changing how we work
+
+This page belongs to all of us. If something here stops helping, bring it to a
+retrospective or raise a pull request to change it.
