@@ -36,13 +36,28 @@ Clone this repository and, from its root directory, run:
 make preview
 ```
 
-Then open <http://127.0.0.1:4567>.
+Then open `http://127.0.0.1:4567`.
 
 The first run downloads the Docker image and may take a few minutes. Edit the documentation
 in `source/` and refresh your browser to see changes. Press **Ctrl+C** to stop the preview;
 your local files are retained.
 
-If port 4567 is already in use, run `make preview PORT=4568` and open <http://127.0.0.1:4568>.
+If port 4567 is already in use, run `make preview PORT=4568` and open `http://127.0.0.1:4568`.
 
 The [Makefile](Makefile) contains the Docker command and uses the same pinned publisher image
 as the [publishing workflow](.github/workflows/documentation.yml).
+
+### Check Links
+
+From the repository's root directory, run:
+
+```sh
+make link-check
+```
+
+This runs Lychee in Docker using the version and link-check options used by CI. No local
+Lychee installation is required. The check reads Markdown, HTML, and ERB files and needs
+internet access to check external links.
+
+Review any failures in the terminal before opening a PR. HTTP responses 403 and 429 are
+accepted, matching CI, so a passing check does not guarantee that every link is accessible.
