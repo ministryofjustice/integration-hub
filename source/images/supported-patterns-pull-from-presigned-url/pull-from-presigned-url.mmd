@@ -1,0 +1,9 @@
+flowchart LR
+  Clean[Clean dispatcher] --> Events[EventBridge / SNS / SQS]
+  Events --> Worker[Retention and notifier Lambda]
+  Worker --> Pickup[Private pickup S3: seven-day lifecycle]
+  Worker --> Slack[Slack: portal link and file location]
+  Slack --> Portal[Existing Transfer web app]
+  Identity[IAM Identity Center: assigned groups] --> Portal
+  Portal --> Grants[S3 Access Grants: recipient READ prefix]
+  Grants --> Pickup
