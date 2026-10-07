@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      ENVIRONMENTS_REF: ${{ inputs.environments_ref || '0e74e737a47b0e67d048f02e883402538a2baaee' }}
+      ENVIRONMENTS_REF: ${{ inputs.environments_ref || '7f57a8160be7e113baf472685399c737354743a3' }}
     steps:
       - name: Require an immutable infrastructure revision
         shell: bash
