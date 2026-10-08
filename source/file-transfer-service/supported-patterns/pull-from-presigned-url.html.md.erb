@@ -1,0 +1,74 @@
+---
+owner_slack: "#integration-hub"
+title: Pull from presigned URL
+weight: 2
+last_reviewed_on: 2026-10-08
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+> This is a draft supported pattern. Development infrastructure has been deployed,
+> but recipient setup and live access tests are still needed before customer use.
+
+Use this pattern when people need to collect clean files through a browser.
+Slack tells them when a file is ready and links to the existing AWS Transfer web app.
+They sign in with their organisational account and download files their group can access.
+
+## How it works
+
+![Clean-file events reach a copy and notification function through EventBridge, SNS and SQS. Slack links to the Transfer web app; IAM Identity Center and S3 Access Grants control access to the pickup bucket.](/images/supported-patterns-pull-from-presigned-url/pull-from-presigned-url.png)
+
+[Download the editable draw.io diagram](/images/supported-patterns-pull-from-presigned-url/pull-from-presigned-url.drawio).
+Open it in draw.io with the AWS architecture shape library enabled.
+
+1. A file passes scanning. Its event goes through Amazon EventBridge, Simple
+   Notification Service (SNS) and Simple Queue Service (SQS).
+2. A Lambda function copies that exact file version into a private pickup bucket.
+   This leaves the clean bucket's retention unchanged.
+3. After the copy succeeds, Slack receives a link to the Transfer web app and the
+   bucket and path where the file is stored.
+4. The recipient signs in through IAM Identity Center, finds the file and downloads it.
+   S3 Access Grants restricts them to their group's pickup directory.
+
+The Slack link opens the portal, not the individual file. It contains no signed S3 URL.
+This component currently owns the copy step and pickup bucket; it does not reuse
+`push-to-s3-with-hosted-pickup`.
+
+## Who can download files
+
+We agree a source prefix and an authorised group for each recipient. Files are stored
+under that recipient's directory. Access is read-only: the group cannot upload or
+delete files there, or access another recipient's directory without a separate grant.
+
+Being a MoJ user, or having access to the Transfer web app, does not automatically
+allow access to these files. Forwarding a Slack link does not grant access either.
+The existing Identity Center setup is used; no separate sign-in application is needed.
+
+## How long files are available
+
+The pickup bucket has a seven-day lifecycle rule. S3 removes expired files
+asynchronously, so this is **not an exact seven-day access or deletion deadline**.
+Tell us if your service needs a strict cutoff before adopting this pattern.
+
+The bucket rejects signed S3 requests whose signatures are more than five minutes old.
+The Transfer web app manages the download links; we still need to verify its download
+and retry behaviour against this limit. A signed link may be shared and reused during
+its effective lifetime, and a download started before expiry can finish afterwards.
+
+Removing group access may not immediately revoke credentials already issued to a
+user. The live access tests must establish that delay before customer use.
+
+## Arrange a trial
+
+Contact `#ask-integration-hub` with:
+
+- the environment and source file prefix you want to use
+- the Identity Center group that should collect the files
+- the Slack channel for notifications
+- expected file sizes and how long users need to collect them
+
+Do not post webhook URLs, credentials or file contents in the channel.
+No recipients are enabled in the current configuration.
+
+Team members can follow the [setup and test guide](../operations/setting-up-slack-file-pickup.html).
