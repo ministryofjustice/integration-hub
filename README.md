@@ -70,6 +70,8 @@ synthetic text file, waits up to five minutes for delivery, downloads it and
 compares its bytes. A fresh UUID in the key and contents prevents a previous
 run's file from satisfying the test. AWS errors and content mismatches fail the run.
 
+See the [current and planned harness flowcharts](tests/file_transfer/flowcharts.md).
+
 ### Local Checks Without AWS
 
 With Python 3.9 or newer, run:
