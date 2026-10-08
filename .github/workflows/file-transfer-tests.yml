@@ -3,16 +3,52 @@ name: File Transfer Tests
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - smoke-test
+    paths:
+      - "tests/file_transfer/**"
+      - ".github/workflows/file-transfer-tests.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "tests/file_transfer/**"
+      - ".github/workflows/file-transfer-tests.yml"
 
 permissions: {}
 
 jobs:
+  unit-tests:
+    name: Check smoke-test logic without AWS
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        if: github.event.repository.private == false
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run local unit tests
+        run: python3 -B -m unittest discover -s tests/file_transfer -p 'test_*.py' -v
+
   file-transfer-tests:
     name: Run file-transfer tests
+    needs: unit-tests
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/smoke-test')
     runs-on: ubuntu-latest
     environment: smoke-test
     timeout-minutes: 10
     permissions:
+      contents: read
       id-token: write
     steps:
       - name: Harden Runner
@@ -20,6 +56,11 @@ jobs:
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check smoke-test configuration
         shell: bash
@@ -58,5 +99,23 @@ jobs:
           {
             echo "### File-transfer harness authentication"
             echo "Successfully assumed the dedicated harness role in the configured test account."
-            echo "Authentication only: no files were uploaded and no delivery test was run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run push-to-S3 smoke test
+        id: smoke_test
+        run: python3 -B tests/file_transfer/smoke_test.py
+
+      - name: Report smoke-test result
+        if: always()
+        shell: bash
+        env:
+          SMOKE_TEST_OUTCOME: ${{ steps.smoke_test.outcome }}
+        run: |
+          {
+            echo "### File-transfer smoke test"
+            case "$SMOKE_TEST_OUTCOME" in
+              success) echo "PASS: uploaded a unique fixture and verified identical delivered contents." ;;
+              failure) echo "FAIL: the smoke test failed. Check the run logs and run token." ;;
+              *) echo "The smoke test did not complete. Check preceding steps or cancellation." ;;
+            esac
           } >> "$GITHUB_STEP_SUMMARY"
