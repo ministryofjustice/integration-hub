@@ -6,13 +6,11 @@ on:
 
 permissions: {}
 
-env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-
 jobs:
   file-transfer-tests:
-    name: Prepare file transfer tests
+    name: Run file-transfer tests
     runs-on: ubuntu-latest
+    environment: smoke-test
     timeout-minutes: 10
     permissions:
       id-token: write
@@ -23,8 +21,42 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Check smoke-test configuration
+        shell: bash
+        env:
+          ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          if [[ ! "$ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
+            echo "::error::Set ACCOUNT_ID to the 12-digit test account ID in the smoke-test environment."
+            exit 1
+          fi
+          if [[ "$AWS_REGION" != "eu-west-2" ]]; then
+            echo "::error::Set AWS_REGION to eu-west-2 in the smoke-test environment."
+            exit 1
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
-          role-to-assume: arn:aws:iam::${{ vars.ACCOUNT_ID }}:role/modernisation-platform-oidc-cicd
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ vars.ACCOUNT_ID }}:role/integration-hub-file-transfer-test-harness-test
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Check AWS identity
+        shell: bash
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
+        run: |
+          identity_arn=$(aws sts get-caller-identity --query Arn --output text)
+          expected_prefix="arn:aws:sts::${EXPECTED_ACCOUNT_ID}:assumed-role/integration-hub-file-transfer-test-harness-test/"
+          if [[ "$identity_arn" != "$expected_prefix"* ]]; then
+            echo "::error::AWS identity does not match the configured test account and harness role."
+            exit 1
+          fi
+          echo "AWS authentication verified for the configured test account and harness role."
+          {
+            echo "### File-transfer harness authentication"
+            echo "Successfully assumed the dedicated harness role in the configured test account."
+            echo "Authentication only: no files were uploaded and no delivery test was run."
+          } >> "$GITHUB_STEP_SUMMARY"
