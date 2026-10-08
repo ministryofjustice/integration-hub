@@ -20,7 +20,7 @@ permissions: {}
 
 jobs:
   unit-tests:
-    name: Check smoke-test logic without AWS
+    name: Check the test harness itself (no AWS access)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -37,11 +37,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run local unit tests
+      - name: Verify the harness handles success and failure correctly
         run: python3 -B -m unittest discover -s tests/file_transfer -p 'test_*.py' -v
 
   file-transfer-tests:
-    name: Run file-transfer tests
+    name: Verify file delivery in the test environment
     needs: unit-tests
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/smoke-test')
     runs-on: ubuntu-latest
@@ -62,7 +62,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check smoke-test configuration
+      - name: Check the test account and region settings
         shell: bash
         env:
           ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
@@ -77,14 +77,14 @@ jobs:
             exit 1
           fi
 
-      - name: Configure AWS credentials
+      - name: Connect to AWS using the dedicated test role
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: arn:aws:iam::${{ vars.ACCOUNT_ID }}:role/integration-hub-file-transfer-test-harness-test
           aws-region: ${{ vars.AWS_REGION }}
           mask-aws-account-id: true
 
-      - name: Check AWS identity
+      - name: Confirm access to the expected test account
         shell: bash
         env:
           EXPECTED_ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
@@ -95,27 +95,42 @@ jobs:
             echo "::error::AWS identity does not match the configured test account and harness role."
             exit 1
           fi
-          echo "AWS authentication verified for the configured test account and harness role."
+          echo "Connection verified: using the dedicated harness role in the expected test account."
           {
-            echo "### File-transfer harness authentication"
-            echo "Successfully assumed the dedicated harness role in the configured test account."
+            echo "### Test environment connection"
+            echo "Connected using the dedicated test role. This confirms access, not file delivery."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Run push-to-S3 smoke test
+      - name: Upload a test file and verify it arrives unchanged
         id: smoke_test
         run: python3 -B tests/file_transfer/smoke_test.py
 
-      - name: Report smoke-test result
+      - name: Show the file-delivery result
         if: always()
         shell: bash
         env:
           SMOKE_TEST_OUTCOME: ${{ steps.smoke_test.outcome }}
         run: |
           {
-            echo "### File-transfer smoke test"
+            echo "### File delivery: direct upload to S3"
+            echo "Test environment only. Uses a unique synthetic file, not real user data."
+            echo ""
             case "$SMOKE_TEST_OUTCOME" in
-              success) echo "PASS: uploaded a unique fixture and verified identical delivered contents." ;;
-              failure) echo "FAIL: the smoke test failed. Check the run logs and run token." ;;
-              *) echo "The smoke test did not complete. Check preceding steps or cancellation." ;;
+              success)
+                echo "**PASS: the file arrived at the expected destination with unchanged contents.**"
+                echo ""
+                echo "Verified: upload, arrival of this run's exact file, download, and byte-for-byte comparison."
+                echo "Find the delivered file using the S3 path in the upload-and-verification step above."
+                ;;
+              failure)
+                echo "**FAIL: file delivery could not be verified.**"
+                echo "Check the last completed stage and error in the upload-and-verification logs. Use the test run ID to investigate."
+                ;;
+              *)
+                echo "**NOT COMPLETED: no file-delivery pass was recorded.**"
+                echo "Check earlier steps, environment approvals, or cancellation."
+                ;;
             esac
+            echo ""
+            echo "Scope: one direct-to-S3 delivery route. This does not verify every transfer pattern or failure scenario."
           } >> "$GITHUB_STEP_SUMMARY"

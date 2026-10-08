@@ -1,5 +1,7 @@
+import io
 import subprocess
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -72,10 +74,21 @@ class SmokeTestTests(unittest.TestCase):
 
     def test_waits_for_exact_key_and_compares_contents(self):
         """Reject a similar key, accept the exact delivery and remove local files."""
-        smoke_test.run_smoke_test(timeout_seconds=10, poll_seconds=1)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            smoke_test.run_smoke_test(timeout_seconds=10, poll_seconds=1)
         self.assertEqual(self.calls, ["put-object", "list-objects-v2", "list-objects-v2", "get-object"])
         self.assertEqual(self.elapsed, 1)
         self.assertTrue(all(not path.exists() for path in self.local_paths))
+        messages = output.getvalue()
+        stages = ["[1/5]", "[2/5]", "[3/5]", "[4/5]", "[5/5]", "PASS:"]
+        positions = [messages.index(stage) for stage in stages]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("up to 10 seconds", messages)
+        self.assertIn(
+            f"Delivered file: s3://{smoke_test.DESTINATION_BUCKET}/{self.destination_key}",
+            messages,
+        )
 
     def test_missing_delivery_times_out_without_download(self):
         """Stop at the deadline when no file arrives, without attempting a download."""
@@ -89,8 +102,11 @@ class SmokeTestTests(unittest.TestCase):
     def test_content_mismatch_fails(self):
         """Fail when a delivered file exists but its bytes differ from the fixture."""
         self.corrupt_delivery = True
-        with self.assertRaisesRegex(RuntimeError, "do not match"):
-            smoke_test.run_smoke_test(timeout_seconds=10, poll_seconds=1)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            with self.assertRaisesRegex(RuntimeError, "do not match"):
+                smoke_test.run_smoke_test(timeout_seconds=10, poll_seconds=1)
+        self.assertNotIn("PASS:", output.getvalue())
 
     def test_aws_errors_fail_immediately(self):
         """Stop after an AWS error rather than continuing to poll for delivery."""

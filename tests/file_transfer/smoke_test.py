@@ -55,17 +55,28 @@ def run_smoke_test(timeout_seconds=300, poll_seconds=5):
     incoming_key = INCOMING_PREFIX + relative_key
     destination_key = DESTINATION_PREFIX + relative_key
     fixture = f"Integration Hub file-transfer smoke test: {run_token}\n".encode()
-    print(f"Run token: {run_token}", flush=True)
+    print("File-transfer test: can a file arrive at its destination unchanged?", flush=True)
+    print("Environment: test | Route: direct upload to S3", flush=True)
+    print(f"Test run ID: {run_token}", flush=True)
+    print("[1/5] Preparing a unique test file containing synthetic data.", flush=True)
 
     with tempfile.TemporaryDirectory(prefix="file-transfer-smoke-") as directory:
         source = Path(directory) / "source.txt"
         delivered = Path(directory) / "delivered.txt"
         source.write_bytes(fixture)
+        print("[2/5] Uploading the file to the service's incoming bucket.", flush=True)
+        print(f"Source: s3://{INCOMING_BUCKET}/{incoming_key}", flush=True)
         aws_s3(
             "put-object", "--bucket", INCOMING_BUCKET,
             "--key", incoming_key, "--body", str(source),
         )
-        print(f"Uploaded {incoming_key}; waiting for {destination_key}", flush=True)
+        print("Upload complete. The file-transfer service now handles delivery.", flush=True)
+        print(
+            f"[3/5] Waiting for this exact file at the destination "
+            f"(up to {timeout_seconds:g} seconds).",
+            flush=True,
+        )
+        print(f"Destination: s3://{DESTINATION_BUCKET}/{destination_key}", flush=True)
         deadline = time.monotonic() + timeout_seconds
 
         while True:
@@ -80,14 +91,17 @@ def run_smoke_test(timeout_seconds=300, poll_seconds=5):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError("Timed out before downloading the delivered object.")
+                print("[4/5] File found at the destination. Downloading it for verification.", flush=True)
                 aws_s3(
                     "get-object", "--bucket", DESTINATION_BUCKET,
                     "--key", destination_key, str(delivered),
                     timeout=min(30, remaining),
                 )
+                print("[5/5] Comparing the delivered file with the original, byte for byte.", flush=True)
                 if delivered.read_bytes() != fixture:
                     raise RuntimeError("Delivered contents do not match the uploaded fixture.")
-                print("PASS: delivered contents match the uploaded fixture.", flush=True)
+                print("PASS: the file arrived at the expected destination with unchanged contents.", flush=True)
+                print(f"Delivered file: s3://{DESTINATION_BUCKET}/{destination_key}", flush=True)
                 return
             remaining = deadline - time.monotonic()
             if remaining > 0:
