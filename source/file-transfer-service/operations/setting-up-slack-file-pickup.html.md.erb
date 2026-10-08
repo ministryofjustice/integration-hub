@@ -1,0 +1,97 @@
+---
+owner_slack: "#integration-hub"
+title: Set up Slack file pickup
+last_reviewed_on: 2026-10-08
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+Use this guide to trial [browser file pickup](../supported-patterns/pull-from-presigned-url.html)
+in development. No recipients are enabled by default.
+
+## Configure a recipient
+
+1. Confirm the test user can sign in to
+   [the development Transfer web app](https://web.development.file-transfer.service.justice.gov.uk).
+   Use a group from `modules/transfer-web-app-identity-configuration`. New application
+   assignments belong in the root configuration and must be deployed there first.
+2. Agree the clean-file prefix and Slack channel. Add a recipient to
+   `modules/authenticated-pickup-configuration/locals-development.tf`:
+
+   ```hcl
+   test-pickup = {
+     prefix = "<approved-clean-prefix>/"
+     groups = ["integration-hub"]
+   }
+   ```
+
+   Replace the example prefix with an existing shared dispatch entry. The group must
+   be approved for that prefix; its existing application assignment is not sufficient.
+3. Refresh the branch against main and review a fresh development plan. Check that
+   each read grant is limited to the intended recipient directory, then apply the
+   `pull-from-presigned-url` component through the platform workflow.
+4. In Secrets Manager, set `integration-hub-file-transfer/slack-pickup/test-pickup` to
+   `{"url":"<approved Slack incoming webhook URL>"}`. Keep this value out of source
+   control and logs. The channel will receive the file's bucket and path.
+5. In the matching file-dispatch secret, set `notifications.slack` to `"test-pickup"`.
+   Preserve the existing action and other settings. Edit the actual secret: Terraform
+   ignores subsequent changes to its initial value.
+6. Upload a new non-sensitive file under the approved prefix. Existing events retain
+   their original dispatch configuration, so use a new transfer for the test.
+
+## Check the result
+
+- The file is copied before Slack announces it. Follow the portal link, find the
+  bucket/path from the message and compare the downloaded file with the original.
+- An authorised group member can read that recipient's directory. Another app user
+  cannot list or download it, including when given the Slack link.
+- Upload and delete fail, and a second recipient's directory remains inaccessible.
+- Test a small file and a file larger than 5 GiB. Both downloads must match their sources.
+- Keep a test download URL private. A new request after five minutes should fail;
+  returning to the portal should allow a fresh download. Check for cached-link problems.
+- Test removal of group access and record how long already-issued credentials work.
+- Quarantined files produce no pickup notification. Confirm the seven-day lifecycle
+  behaviour meets the customer's needs; it does not enforce an exact access cutoff.
+
+These checks are required before customer access. Unit tests cannot establish live
+Identity Center permissions or the Transfer web app's behaviour.
+
+## If a notification is missing
+
+Check the notifier's logs, processing queue and dead-letter queues. The function
+validates the source prefix and immutable object and dispatch-secret versions. Failed
+copies do not notify. Events older than 12 hours are skipped because clean files have
+short retention, so investigate delays promptly.
+
+Receipts prevent routine duplicate notifications for 14 days. A retry reuses an
+existing copy rather than extending its collection window. An uncertain Slack response
+can still result in a duplicate message. Large files use multipart copy; interrupted
+uploads have a one-day cleanup rule.
+
+Dead-letter queue alarms go to the existing PagerDuty topics: low priority outside
+production, high priority in production. Other function and queue alarms notify low
+priority in production. Use the
+[queue investigation guide](investigating-and-replaying-file-transfer-dlq-messages.html)
+when a message needs replaying.
+
+## Moving from the earlier development page
+
+The new design removes the custom HTTP API, sign-in page and download Lambda.
+The old execute-api link is retired; `portal_url` points to the Transfer web app.
+Review those removals in the plan. The pickup bucket should remain, along with the
+root Transfer and Identity Center resources. Do not apply an old saved plan.
+Existing copies outside recipient directories are not covered by the new grants.
+
+## Run the unit tests
+
+From the `modernisation-platform-environments` checkout:
+
+```sh
+PYTHONPATH=terraform/environments/integration-hub-file-transfer/pull-from-presigned-url/lambda/notifier \
+  python3 -m unittest discover -s terraform/environments/integration-hub-file-transfer/pull-from-presigned-url/lambda/notifier/tests -v
+```
+
+A [shared Python testing approach](python-unit-test-automation.html) is proposed for
+all file-transfer functions. It replaces the pickup-specific workflow proposal; the
+automation and Slack failure alerts described there are not deployed by this PR.

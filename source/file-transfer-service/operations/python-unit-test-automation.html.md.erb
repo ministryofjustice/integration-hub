@@ -1,0 +1,59 @@
+---
+owner_slack: "#integration-hub"
+title: Proposed Python unit-test automation
+last_reviewed_on: 2026-10-08
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+This is a proposed follow-up story, not an available workflow. We need one approach
+for testing file-transfer Python functions in `modernisation-platform-environments`,
+rather than a separate workflow for each delivery pattern.
+
+## What we want
+
+As a file-transfer maintainer, I want Python changes tested automatically and failures
+reported to Slack, so that I can fix problems before deploying them.
+
+## Proposed approach
+
+Keep the runner in `integration-hub`. The platform team owns the infrastructure
+workflows, so adding a trigger there needs their agreement.
+
+Prefer a platform-approved cross-repository event when a pull request changes Python
+functions, shared Python code, tests or dependency files under
+`terraform/environments/integration-hub-file-transfer`. If that trigger is not
+available, a scheduled watcher in `integration-hub` can inspect changed pull-request
+heads and main. It should record tested revisions and avoid repeat runs. We need to
+agree the polling interval and how that state is stored before implementation.
+
+Resolve the revision automatically and record the exact commit in the result. Keep a
+manual rerun option for investigations; do not maintain a commit hash in the workflow.
+Use a suite manifest to list each function's test command, working directory and
+pinned development dependencies. Changes to shared code should run all affected
+suites. A changed function without tests should be reported explicitly.
+
+Run tests without AWS credentials or Slack secrets. Pull-request code is untrusted;
+use read-only repository access and isolated runners. A separate trusted reporting job
+should send the result to Slack without executing code from the tested checkout.
+
+## Acceptance criteria
+
+- A relevant Python change triggers tests automatically; unrelated changes do not.
+- The runner covers multiple function suites, including pickup and shared dispatch
+  code, and reports missing test coverage rather than silently skipping it.
+- Results identify the repository, pull request, exact commit and failed suite.
+- A failed run posts a concise message to the agreed Slack channel with a link to the
+  logs. Do not include file contents, credentials or raw test output in that message.
+- Repeated polling does not duplicate tests or failure alerts for the same revision.
+  An explicit rerun remains possible.
+- Fork pull requests cannot access Slack or AWS credentials. Notification failures
+  remain visible in the workflow results.
+- The result is easy to find from the infrastructure pull request. Agree the GitHub
+  App permissions needed to publish a check before making it a merge requirement.
+- Test an intentional failure, its Slack alert, a passing run and a manual rerun.
+
+Before implementation, agree the trigger with the Modernisation Platform team and
+choose the Slack channel and secret owner. This work is separate from the existing
+AWS smoke-test harness, which checks deployed infrastructure rather than unit tests.
