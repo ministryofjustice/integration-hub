@@ -12,6 +12,7 @@ DESTINATION_BUCKET = "integration-hub-file-transfer-test-test-harness"
 INCOMING_PREFIX = "test-harness/push-to-s3/"
 DESTINATION_PREFIX = "push-to-s3/"
 REGION = "eu-west-2"
+LARGE_FIXTURE_BYTES = 2 * 1024 * 1024
 
 
 def aws_s3(operation, *arguments, timeout=30):
@@ -40,77 +41,93 @@ def aws_s3(operation, *arguments, timeout=30):
     return json.loads(result.stdout)
 
 
-def run_smoke_test(timeout_seconds=300, poll_seconds=5):
-    """Upload a unique fixture and verify that the service delivers identical bytes.
+def run_smoke_test(timeout_seconds=300, poll_seconds=5, layer="l1"):
+    """Verify one smoke fixture or the functional integrity fixtures.
 
-    After upload, poll for the exact destination key within timeout_seconds.
     Raise an error for failed AWS calls, missing delivery or changed contents.
     Remove local temporary files; leave AWS object cleanup to retention rules.
     """
+    if layer not in ("l1", "l2"):
+        raise ValueError("Test layer must be 'l1' or 'l2'.")
     if timeout_seconds <= 0 or poll_seconds <= 0:
         raise ValueError("Timeout and polling interval must be positive.")
 
     run_token = uuid.uuid4().hex
-    relative_key = f"{run_token}/payload.txt"
-    incoming_key = INCOMING_PREFIX + relative_key
-    destination_key = DESTINATION_PREFIX + relative_key
-    fixture = f"Integration Hub file-transfer smoke test: {run_token}\n".encode()
-    print("File-transfer test: can a file arrive at its destination unchanged?", flush=True)
+    binary_fixture = run_token.encode() + bytes(range(256)) * 32
+    large_fixture = (
+        run_token.encode()
+        + bytes(range(256)) * (LARGE_FIXTURE_BYTES // 256 + 1)
+    )[:LARGE_FIXTURE_BYTES]
+    all_scenarios = [
+        ("small text", "payload.txt", f"Integration Hub file-transfer smoke test: {run_token}\n".encode()),
+        ("zero-byte file", "empty.bin", b""),
+        ("binary file", "binary-payload.bin", binary_fixture),
+        ("2 MiB file", "multi-megabyte.bin", large_fixture),
+        ("special-character filename", "special chars + (1).txt", f"Synthetic fixture: {run_token}\n".encode()),
+    ]
+    scenarios = all_scenarios[:1] if layer == "l1" else all_scenarios[1:]
+    print(f"File-transfer test: {layer.upper()} {'smoke' if layer == 'l1' else 'functional integrity'} checks.", flush=True)
     print("Environment: test | Route: direct upload to S3", flush=True)
     print(f"Test run ID: {run_token}", flush=True)
-    print("[1/5] Preparing a unique test file containing synthetic data.", flush=True)
+    print(f"Scenarios: {len(scenarios)} | Overall timeout: {timeout_seconds:g} seconds", flush=True)
 
     with tempfile.TemporaryDirectory(prefix="file-transfer-smoke-") as directory:
-        source = Path(directory) / "source.txt"
-        delivered = Path(directory) / "delivered.txt"
-        source.write_bytes(fixture)
-        print("[2/5] Uploading the file to the service's incoming bucket.", flush=True)
-        print(f"Source: s3://{INCOMING_BUCKET}/{incoming_key}", flush=True)
-        aws_s3(
-            "put-object", "--bucket", INCOMING_BUCKET,
-            "--key", incoming_key, "--body", str(source),
-        )
-        print("Upload complete. The file-transfer service now handles delivery.", flush=True)
-        print(
-            f"[3/5] Waiting for this exact file at the destination "
-            f"(up to {timeout_seconds:g} seconds).",
-            flush=True,
-        )
-        print(f"Destination: s3://{DESTINATION_BUCKET}/{destination_key}", flush=True)
         deadline = time.monotonic() + timeout_seconds
-
-        while True:
+        for index, (scenario, filename, fixture) in enumerate(scenarios, start=1):
+            relative_key = f"{run_token}/{filename}"
+            incoming_key = INCOMING_PREFIX + relative_key
+            destination_key = DESTINATION_PREFIX + relative_key
+            source = Path(directory) / f"source-{index}"
+            delivered = Path(directory) / f"delivered-{index}"
+            source.write_bytes(fixture)
+            print(f"[{index}/{len(scenarios)}] Uploading {scenario} ({len(fixture)} bytes).", flush=True)
+            print(f"Source: s3://{INCOMING_BUCKET}/{incoming_key}", flush=True)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError("Timed out waiting for the exact delivered object.")
-            listing = aws_s3(
-                "list-objects-v2", "--bucket", DESTINATION_BUCKET,
-                "--prefix", destination_key, timeout=min(30, remaining),
+                raise TimeoutError(f"Timed out before uploading {scenario}.")
+            aws_s3(
+                "put-object", "--bucket", INCOMING_BUCKET,
+                "--key", incoming_key, "--body", str(source),
+                timeout=min(30, remaining),
             )
-            if any(item["Key"] == destination_key for item in listing.get("Contents", [])):
+            print(f"Waiting for exact destination key: s3://{DESTINATION_BUCKET}/{destination_key}", flush=True)
+
+            while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError("Timed out before downloading the delivered object.")
-                print("[4/5] File found at the destination. Downloading it for verification.", flush=True)
-                aws_s3(
-                    "get-object", "--bucket", DESTINATION_BUCKET,
-                    "--key", destination_key, str(delivered),
-                    timeout=min(30, remaining),
+                    raise TimeoutError(f"Timed out waiting for {scenario} delivery.")
+                listing = aws_s3(
+                    "list-objects-v2", "--bucket", DESTINATION_BUCKET,
+                    "--prefix", destination_key, timeout=min(30, remaining),
                 )
-                print("[5/5] Comparing the delivered file with the original, byte for byte.", flush=True)
-                if delivered.read_bytes() != fixture:
-                    raise RuntimeError("Delivered contents do not match the uploaded fixture.")
-                print("PASS: the file arrived at the expected destination with unchanged contents.", flush=True)
-                print(f"Delivered file: s3://{DESTINATION_BUCKET}/{destination_key}", flush=True)
-                return
-            remaining = deadline - time.monotonic()
-            if remaining > 0:
-                time.sleep(min(poll_seconds, remaining))
+                if any(item["Key"] == destination_key for item in listing.get("Contents", [])):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(f"Timed out before downloading {scenario}.")
+                    aws_s3(
+                        "get-object", "--bucket", DESTINATION_BUCKET,
+                        "--key", destination_key, str(delivered),
+                        timeout=min(30, remaining),
+                    )
+                    if delivered.read_bytes() != fixture:
+                        raise RuntimeError(f"Delivered contents do not match the {scenario} fixture.")
+                    print(f"PASS: {scenario} delivered unchanged ({len(fixture)} bytes).", flush=True)
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    time.sleep(min(poll_seconds, remaining))
+
+    print(f"PASS: all {len(scenarios)} file-transfer scenarios completed.", flush=True)
 
 
 if __name__ == "__main__":
     try:
-        run_smoke_test()
+        import argparse
+
+        parser = argparse.ArgumentParser(description="Verify file-transfer delivery in the test environment.")
+        parser.add_argument("--layer", choices=("l1", "l2"), default="l1")
+        arguments = parser.parse_args()
+        run_smoke_test(layer=arguments.layer)
     except (RuntimeError, OSError, ValueError) as error:
         print(f"FAIL: {error}", file=sys.stderr)
         sys.exit(1)

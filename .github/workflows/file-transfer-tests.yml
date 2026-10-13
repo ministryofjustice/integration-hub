@@ -101,36 +101,66 @@ jobs:
             echo "Connected using the dedicated test role. This confirms access, not file delivery."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload a test file and verify it arrives unchanged
-        id: smoke_test
-        run: python3 -B tests/file_transfer/smoke_test.py
+      - name: L1 smoke - verify a small file arrives unchanged
+        id: l1_smoke
+        run: python3 -B tests/file_transfer/smoke_test.py --layer l1
 
-      - name: Show the file-delivery result
+      - name: Report L1 smoke result
         if: always()
         shell: bash
         env:
-          SMOKE_TEST_OUTCOME: ${{ steps.smoke_test.outcome }}
+          TEST_OUTCOME: ${{ steps.l1_smoke.outcome }}
         run: |
           {
-            echo "### File delivery: direct upload to S3"
-            echo "Test environment only. Uses a unique synthetic file, not real user data."
+            echo "### L1 smoke: direct upload to S3"
+            echo "Test environment only. Uses a unique synthetic text file."
             echo ""
-            case "$SMOKE_TEST_OUTCOME" in
+            case "$TEST_OUTCOME" in
               success)
-                echo "**PASS: the file arrived at the expected destination with unchanged contents.**"
-                echo ""
-                echo "Verified: upload, arrival of this run's exact file, download, and byte-for-byte comparison."
-                echo "Find the delivered file using the S3 path in the upload-and-verification step above."
+                echo "**PASS: the small text file arrived at the expected destination unchanged.**"
+                echo "Verified: upload, exact-key arrival, download, and byte-for-byte comparison."
                 ;;
               failure)
-                echo "**FAIL: file delivery could not be verified.**"
-                echo "Check the last completed stage and error in the upload-and-verification logs. Use the test run ID to investigate."
+                echo "**FAIL: L1 file delivery could not be verified.**"
+                echo "Check the error and test run ID in the L1 step logs."
                 ;;
               *)
-                echo "**NOT COMPLETED: no file-delivery pass was recorded.**"
+                echo "**NOT COMPLETED: L1 did not record a pass.**"
                 echo "Check earlier steps, environment approvals, or cancellation."
                 ;;
             esac
             echo ""
-            echo "Scope: one direct-to-S3 delivery route. This does not verify every transfer pattern or failure scenario."
+            echo "Scope: one happy-path file on the direct-to-S3 route."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: L2 integrity - verify edge-case files arrive unchanged
+        id: l2_integrity
+        run: python3 -B tests/file_transfer/smoke_test.py --layer l2
+
+      - name: Report L2 integrity result
+        if: always()
+        shell: bash
+        env:
+          TEST_OUTCOME: ${{ steps.l2_integrity.outcome }}
+        run: |
+          {
+            echo "### L2 integrity fixtures: direct upload to S3"
+            echo "Test environment only. Uses unique synthetic data."
+            echo ""
+            case "$TEST_OUTCOME" in
+              success)
+                echo "**PASS: zero-byte, binary, 2 MiB, and special-character filename fixtures arrived unchanged.**"
+                echo "Each fixture was downloaded from its exact destination key and compared byte for byte."
+                ;;
+              failure)
+                echo "**FAIL: an L2 integrity fixture could not be verified.**"
+                echo "Check the last completed scenario and test run ID in the L2 step logs."
+                ;;
+              *)
+                echo "**NOT COMPLETED: L2 integrity checks did not record a pass.**"
+                echo "Check earlier steps, environment approvals, or cancellation."
+                ;;
+            esac
+            echo ""
+            echo "Scope: integrity fixtures for the direct-to-S3 route only; this is not the complete L2 route and negative-case matrix."
           } >> "$GITHUB_STEP_SUMMARY"

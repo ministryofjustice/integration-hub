@@ -47,6 +47,7 @@ class SmokeTestTests(unittest.TestCase):
             self.assertEqual(bucket, smoke_test.INCOMING_BUCKET)
             self.incoming_key = arguments[arguments.index("--key") + 1]
             self.assertTrue(self.incoming_key.startswith(smoke_test.INCOMING_PREFIX))
+            self.listings = 0
             self.destination_key = (
                 smoke_test.DESTINATION_PREFIX
                 + self.incoming_key[len(smoke_test.INCOMING_PREFIX):]
@@ -72,23 +73,45 @@ class SmokeTestTests(unittest.TestCase):
             return {}
         self.fail(f"Unexpected AWS operation: {operation}")
 
-    def test_waits_for_exact_key_and_compares_contents(self):
-        """Reject a similar key, accept the exact delivery and remove local files."""
+    def test_l1_checks_one_small_file_and_compares_contents(self):
+        """Keep the deployment smoke layer to one small representative file."""
         output = io.StringIO()
         with redirect_stdout(output):
             smoke_test.run_smoke_test(timeout_seconds=10, poll_seconds=1)
-        self.assertEqual(self.calls, ["put-object", "list-objects-v2", "list-objects-v2", "get-object"])
+        expected_calls = ["put-object", "list-objects-v2", "list-objects-v2", "get-object"]
+        self.assertEqual(self.calls, expected_calls)
         self.assertEqual(self.elapsed, 1)
         self.assertTrue(all(not path.exists() for path in self.local_paths))
         messages = output.getvalue()
-        stages = ["[1/5]", "[2/5]", "[3/5]", "[4/5]", "[5/5]", "PASS:"]
-        positions = [messages.index(stage) for stage in stages]
-        self.assertEqual(positions, sorted(positions))
-        self.assertIn("up to 10 seconds", messages)
+        self.assertIn("L1 smoke checks", messages)
+        self.assertIn("PASS: small text delivered unchanged", messages)
+        self.assertIn("PASS: all 1 file-transfer scenarios completed.", messages)
+        self.assertNotIn("zero-byte file", messages)
         self.assertIn(
-            f"Delivered file: s3://{smoke_test.DESTINATION_BUCKET}/{self.destination_key}",
+            f"Waiting for exact destination key: s3://{smoke_test.DESTINATION_BUCKET}/{self.destination_key}",
             messages,
         )
+
+    def test_l2_checks_integrity_fixtures_and_compares_contents(self):
+        """Run edge fixtures in the functional layer, separate from L1 smoke."""
+        output = io.StringIO()
+        with redirect_stdout(output):
+            smoke_test.run_smoke_test(timeout_seconds=10, poll_seconds=1, layer="l2")
+        expected_calls = [
+            operation
+            for _ in range(4)
+            for operation in ("put-object", "list-objects-v2", "list-objects-v2", "get-object")
+        ]
+        self.assertEqual(self.calls, expected_calls)
+        self.assertEqual(self.elapsed, 4)
+        self.assertTrue(all(not path.exists() for path in self.local_paths))
+        messages = output.getvalue()
+        self.assertIn("L2 functional integrity checks", messages)
+        for scenario in ["zero-byte file", "binary file", "2 MiB file", "special-character filename"]:
+            self.assertIn(f"PASS: {scenario} delivered unchanged", messages)
+        self.assertIn("PASS: all 4 file-transfer scenarios completed.", messages)
+        self.assertNotIn("small text delivered unchanged", messages)
+        self.assertIn("special chars + (1).txt", messages)
 
     def test_missing_delivery_times_out_without_download(self):
         """Stop at the deadline when no file arrives, without attempting a download."""
@@ -130,6 +153,11 @@ class SmokeTestTests(unittest.TestCase):
             with self.subTest(timeout=timeout, interval=interval):
                 with self.assertRaises(ValueError):
                     smoke_test.run_smoke_test(timeout, interval)
+        self.aws.assert_not_called()
+
+    def test_invalid_layer_makes_no_aws_calls(self):
+        with self.assertRaisesRegex(ValueError, "layer must be"):
+            smoke_test.run_smoke_test(layer="l3")
         self.aws.assert_not_called()
 
 

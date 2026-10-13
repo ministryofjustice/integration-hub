@@ -101,10 +101,11 @@ deployment branch restrictions and reviewer protections agreed by the team.
 
 In GitHub, select **Actions > File Transfer Tests > Run workflow**, choose an
 authorised branch (normally `main`) and run it. After local checks pass, the live
-job assumes the dedicated role, verifies its identity and runs the smoke test.
-The run summary reports the result. Authentication success alone does not mean
-file delivery passed. AWS CLI v2 and Python 3 are supplied by the GitHub-hosted
-Ubuntu runner; the script uses no additional Python packages.
+job assumes the dedicated role, verifies its identity and runs the L1 smoke
+check followed by L2 integrity fixtures. The run summary reports each layer
+separately. Authentication success alone does not mean file delivery passed.
+AWS CLI v2 and Python 3 are supplied by the GitHub-hosted Ubuntu runner; the
+script uses no additional Python packages.
 
 The [smoke-test script](tests/file_transfer/smoke_test.py) uses this test-only
 route, matching the MP Terraform configuration:
@@ -112,25 +113,31 @@ route, matching the MP Terraform configuration:
 | Setting | Value |
 | --- | --- |
 | Incoming bucket | `integration-hub-file-transfer-test-incoming` |
-| Incoming key | `test-harness/push-to-s3/<run-token>/payload.txt` |
+| Incoming key | `test-harness/push-to-s3/<run-token>/<file-name>` |
 | Destination bucket | `integration-hub-file-transfer-test-test-harness` |
-| Destination key | `push-to-s3/<run-token>/payload.txt` |
+| Destination key | `push-to-s3/<run-token>/<file-name>` |
 | Region | `eu-west-2` |
 
-The script performs one small `PutObject`, polls `ListObjectsV2` for the exact
-destination key, then calls `GetObject`. It relies on bucket-default KMS
-encryption and never writes to the destination or deletes AWS objects. Local
-temporary files are removed on success or failure. Destination lifecycle rules
-manage current and noncurrent file expiry asynchronously; source and intermediate
-objects remain subject to the service's existing retention rules.
+L1 uploads one small synthetic text file. L2 uploads zero-byte, binary, 2 MiB,
+and filename-with-spaces-and-punctuation fixtures. For each file, the harness
+polls `ListObjectsV2` for the exact destination key, downloads it with
+`GetObject`, and compares the bytes. Each layer has one overall timeout. The
+harness relies on bucket-default KMS encryption and never writes to the
+destination or deletes AWS objects. Local temporary files are removed on
+success or failure.
+Destination lifecycle rules manage current and noncurrent file expiry
+asynchronously; source and intermediate objects remain subject to the
+service's existing retention rules.
 
 For a timeout, use the run token in the logs to investigate the service's
 CloudWatch logs and dead-letter queues with an authorised operator role. The
 harness itself has no diagnostic-log access. Do not copy a fixture into the
 destination to make a test pass.
 
-This first test exercises staging, scanning, routing and `push-to-s3` delivery.
-It does not cover API, SFTP/FTPS or browser uploads, malicious-file rejection,
-retry/idempotency guarantees or completion notifications. External notifications
-and automatic post-deployment triggering remain follow-up work. Live delivery
-must be verified separately from these local unit checks.
+L1 exercises the happy path for the `push-to-s3` route. L2 currently checks
+content integrity for the additional fixtures on that route; it is not yet the
+full L2 route/scenario matrix. These checks do not cover API, SFTP/FTPS or
+browser uploads, malicious-file rejection, retry/idempotency guarantees or
+completion notifications. External notifications and automatic post-deployment
+triggering remain follow-up work. Live delivery must be verified separately
+from these local unit checks.
