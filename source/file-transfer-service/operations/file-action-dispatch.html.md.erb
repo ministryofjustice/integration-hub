@@ -1,0 +1,115 @@
+---
+owner_slack: "#integration-hub"
+title: File action dispatch
+weight: 7
+last_reviewed_on: 2026-10-13
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+This reference is for Integration Hub team members configuring or investigating
+actions requested after a file reaches the clean bucket. The file-action
+adapter finds the most specific dispatch configuration for the destination
+object key and publishes at most one `FileActionExecutionRequested.v1` event
+for that configuration. Publication requests work; it does not confirm that a
+downstream action or notification has completed.
+
+## Dispatch configuration
+
+Terraform creates dispatch secrets from `file_dispatch_prefixes` in
+[`locals-dispatch.tf`](https://github.com/ministryofjustice/modernisation-platform-environments/blob/main/terraform/environments/integration-hub-file-transfer/locals-dispatch.tf).
+The identity and configured prefix form an opaque full-object-key prefix. For
+example, identity `example-transfer-identity` and prefix `/app-1/` match keys
+beneath `example-transfer-identity/app-1/`.
+
+Each secret contains an optional action and notification destinations:
+
+```json
+{
+  "action": {
+    "name": "place-on-sqs",
+    "queueArn": "arn:aws:sqs:eu-west-2:123456789012:destination"
+  },
+  "notifications": {
+    "email": "consumer@example.invalid",
+    "slack": null,
+    "teams": "https://example.invalid/teams-webhook"
+  }
+}
+```
+
+This illustrates the configuration shape, not a guarantee that an executor is
+deployed. Action-specific configuration and routing rules are defined when
+executors are introduced.
+
+`action` is either `null` or an object with a non-empty `name`. Other action
+properties are private configuration interpreted by the selected executor.
+Each notification is either `null` or its private destination value. Null means
+that action or notification is not configured.
+
+The requested event contains only `action.name`, the names of configured
+notification types and an immutable reference to the exact secret version.
+Private action configuration and notification destinations stay in Secrets
+Manager. A notification-only secret is valid. A secret with neither an action
+nor notification destinations is a successful no-op.
+
+## Prefix matching
+
+The dispatcher tries the complete destination object key, then parent prefixes
+at slash boundaries from longest to shortest. For
+`identity/group/reports/test.csv`, it tries:
+
+1. `identity/group/reports/test.csv`
+2. `identity/group/reports/`
+3. `identity/group/`
+4. `identity/`
+
+The first existing secret wins, including a no-op configuration. A missing
+candidate is expected and lookup continues. If no candidate exists, processing
+succeeds without publishing an event. An unreadable or malformed matched secret
+fails the invocation, so Lambda retries and dead-letter handling apply; the
+dispatcher does not fall back to a less-specific configuration.
+
+Only clean `FileRouted.v1` events for the configured clean bucket reach the
+dispatcher. Quarantine and investigation routes do not produce action requests.
+
+## Delivery and idempotency
+
+The adapter uses the source route event's `detail.metadata.idempotencyKey` for
+Lambda-level deduplication. Replaying the same logical route under a different
+EventBridge envelope ID does not republish a request while its idempotency
+record exists.
+
+`detail.data.actionExecutionId` is a deterministic UUID derived from the source
+route idempotency key, matched secret ARN and exact secret version ID. The output
+idempotency key is `action-request:{actionExecutionId}`. A different configuration
+version produces a different execution identity when dispatch runs; rotating a
+secret alone does not bypass the adapter's existing idempotency record.
+
+The request retains the original `fileId` and `correlationId`, with the
+`FileRouted.v1` EventBridge ID as `causationId`. EventBridge publication is at
+least once: a retry can create a new envelope with the same logical request
+identity.
+
+Rules can route requests using `detail.data.action.name` or names in
+`detail.data.notifications`. One request may fan out to multiple downstream
+queues. Every consumer must independently deduplicate using `actionExecutionId`
+or the equivalent `detail.metadata.idempotencyKey`.
+
+## Security boundary
+
+The dispatcher trusts the canonical `FileRouted.v1` input selected by its
+EventBridge rule and validates the matched secret's JSON structure and action
+name. Downstream executors interpret action-specific configuration by retrieving
+the exact secret identified by `configurationReference.secretArn` and
+`configurationReference.secretVersionId` in the event's `detail.data`.
+
+Secret values must not be written to EventBridge, CloudWatch Logs or dead-letter
+queues. Dispatcher logs contain only non-sensitive object identifiers,
+secret-version identifiers, the action name and configured notification type
+names.
+
+For operational investigation and replay, see
+[Investigating file transfer service issues](investigating-file-transfer-service-issues.html)
+and [Investigating and replaying file transfer DLQ messages](investigating-and-replaying-file-transfer-dlq-messages.html).

@@ -2,7 +2,7 @@
 owner_slack: "#integration-hub"
 title: Investigating file transfer service issues
 weight: 5
-last_reviewed_on: 2026-09-01
+last_reviewed_on: 2026-10-13
 review_in: 3 months
 ---
 
@@ -22,6 +22,31 @@ possible, obtain the S3 object version ID. Search using the object key and
 version ID rather than just the file name, as different users can upload files
 with the same name.
 
+Once you find a canonical event, use `detail.metadata.correlationId` as the
+primary search key for the rest of the investigation. Search event-bus logs for
+that value and Lambda logs for `correlation_id`. Record the identifiers below
+alongside the exact S3 object versions.
+
+## Lifecycle identifiers
+
+| Field | Meaning |
+| --- | --- |
+| `detail.data.fileId` | Stable logical file identifier, created at ingress and preserved in later events. |
+| `detail.metadata.correlationId` | Groups all events and action requests for one file lifecycle. Currently equal to `fileId`, but a separate tracing concept. |
+| `detail.metadata.causationId` | Top-level EventBridge `id` of the event that caused this event. `FileReceived.v1` has no causation ID. |
+| `detail.metadata.idempotencyKey` | Deterministic producer-operation identity that consumers must use to deduplicate retries. |
+| Top-level EventBridge `id` | Identifies one event envelope, not the logical file. Separate publications can have different IDs for the same operation. |
+
+At ingress, the file-received adapter derives `fileId` and `correlationId` as a
+deterministic UUID from the incoming bucket, key and exact S3 version ID. Its
+idempotency key is `bucket:key:versionId`. Two uploads to the same key remain
+distinct files.
+
+AWS Lambda Powertools deduplicates retries of the same native EventBridge event
+ID. S3 can emit separate notifications for one object version; these have
+different EventBridge IDs but produce the same stable file identity. Delivery
+is at least once.
+
 ## Trace the file through the service
 
 Use the file's object key, version ID and timestamp to work through these
@@ -29,8 +54,9 @@ stages in order:
 
 1. **AWS Transfer Family and incoming bucket**: confirm that the AWS Transfer
    Family server accepted the upload. Check the structured Transfer log group,
-   `/aws/transfer/integration-hub-file-transfer`, then confirm the expected
-   object version is in the `incoming` bucket.
+   `/aws/transfer/integration-hub-file-transfer`. If staging has not completed,
+   check for the expected object version in `incoming`; successful staging
+   deletes that exact source version.
 2. **File received event**: check the default EventBridge rule named
    `incoming-s3-object-created` and the
    `integration-hub-file-transfer-file-received-adapter` Lambda log group. This
@@ -55,7 +81,10 @@ stages in order:
 6. **Clean-file action**: for a file in the `clean` bucket, check the
    `FileRouted.v1` event and the `file-action-execution-requested-adapter`
    Lambda log group. The adapter finds the most specific dispatch configuration
-   for the object key and publishes a `FileActionExecutionRequested.v1` event.
+   for the object key and publishes a `FileActionExecutionRequested.v1` event
+   when an action or notification is configured. See
+   [File action dispatch](file-action-dispatch.html) for matching, no-op and
+   retry behaviour.
 
 The EventBridge bus writes full event details to the CloudWatch log group:
 
@@ -66,6 +95,63 @@ The EventBridge bus writes full event details to the CloudWatch log group:
 This is useful when the Lambda logs show that an expected event was not
 received. EventBridge also retains an archive of file-transfer events for the
 configured log-retention period.
+
+To reconstruct causality, start with `FileReceived.v1` and find events whose
+`causationId` matches the preceding EventBridge ID. Compare `fileId`,
+`correlationId` and `idempotencyKey` when events appear duplicated: matching
+values identify retries of the same logical operation, while different source
+version IDs identify distinct uploads.
+
+## Staging and routing guarantees
+
+The STAGE mover claims a leased DynamoDB operation record for the correlation
+ID and `STAGE`. The table calls its partition key `concurrencyId`; its value is
+the lifecycle's `correlationId`. Existing records are checked against immutable
+source fields before the operation can resume.
+
+STAGE copies the exact incoming version to the same key in `processing`. Every
+positive-size object uses multipart copy, including a one-byte object; a
+legitimate zero-byte business object uses `CopyObject`. The mover preserves
+user metadata, tags and supported content headers, adds reserved correlation
+and copy-token metadata, and applies the processing bucket's SSE-KMS key. It
+verifies the exact destination version before deleting only the exact source
+version.
+
+When STAGE receipts are enabled, a receipt is created only after source
+deletion. An incoming object is exempt as an existing receipt only when its key
+ends in `.receipt` and that exact version has the tag `Receipt=TRUE`.
+
+`FileStagedForScanning.v1` retains the original `fileId` and `correlationId`,
+records the `FileReceived.v1` EventBridge ID as `causationId`, and includes both
+exact S3 versions.
+
+The GuardDuty adapter reads `mft-correlation-id` from the exact processing
+version and requires the durable STAGE record to be `COMPLETED` before
+publishing terminal scan outcomes as `FileScanResultRecorded.v1`.
+
+The ROUTE mover claims a separate record for the correlation ID and `ROUTE`.
+The canonical event's `detail.data.scanResultStatus` selects the destination:
+
+| Scan result | Route |
+| --- | --- |
+| `NO_THREATS_FOUND` | `clean` |
+| `THREATS_FOUND` | `quarantine` |
+| `UNSUPPORTED`, `ACCESS_DENIED` or `FAILED` | `investigation` |
+
+`scanResultStatusMatchesTag` preserves diagnostic provenance from the adapter.
+A mismatch overrides the reported scan result and sends the object to
+`investigation`. Do not change a GuardDuty result tag to force a route.
+
+ROUTE copies and verifies the exact processing version with destination
+SSE-KMS encryption before deleting that source version. Its `FileRouted.v1`
+event has the idempotency key
+`route:{route}:{destinationBucket}:{key}:{destinationVersionId}`.
+
+A retry resumes the recorded multipart upload, destination version or later
+checkpoint instead of restarting the move. Idempotency records expire after
+30 days in non-production environments and 400 days in production, matching
+event retention. For checkpoint interpretation and safe recovery, see
+[Investigating and replaying file transfer DLQ messages](investigating-and-replaying-file-transfer-dlq-messages.html).
 
 ## Interpret the destination
 
@@ -90,6 +176,6 @@ The configured alarm definitions are in
 ## Preserve investigation evidence
 
 Record the environment, username, object key, object version ID, timestamps,
-observed bucket location, relevant EventBridge event IDs and non-sensitive log
-messages. Do not place file content, passwords, private keys or Secrets Manager
-values in tickets, Slack or logs.
+observed bucket location, `fileId`, `correlationId`, `idempotencyKey`, relevant
+EventBridge event IDs and non-sensitive log messages. Do not place file content,
+passwords, private keys or Secrets Manager values in tickets, Slack or logs.

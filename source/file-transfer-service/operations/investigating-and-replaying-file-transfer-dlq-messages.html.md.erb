@@ -2,7 +2,7 @@
 owner_slack: "#integration-hub"
 title: Investigating and replaying file transfer DLQ messages
 weight: 6
-last_reviewed_on: 2026-09-01
+last_reviewed_on: 2026-10-13
 review_in: 3 months
 ---
 
@@ -26,6 +26,37 @@ redrive policy, so replay is a deliberate manual operation. Do not purge a DLQ.
 4. Record the environment, queue name, SQS message ID, event ID, object key,
    object version ID and the message's error details. Do not copy a message body
    containing sensitive data into a ticket, Slack or GitHub.
+5. For a STAGE or ROUTE failure, inspect the durable operation record and exact
+  object versions as described below. Do not replay while a lease is active
+  or while an S3 side effect or event publication is ambiguous.
+
+## File mover recovery order
+
+`integration-hub-file-transfer-stage` moves files from `incoming` to
+`processing`. `integration-hub-file-transfer-route` moves them from `processing`
+to `clean`, `quarantine` or `investigation`.
+
+Each mover uses AWS Lambda Powertools to deduplicate the same EventBridge event
+ID and a separate DynamoDB record keyed by `(concurrencyId, operation)`. The
+`concurrencyId` value is the file's `correlationId`; `operation` is `STAGE` or
+`ROUTE`. This record is both a leased lock and a durable recovery checkpoint.
+Do not delete or reset it to force a replay.
+
+Use recovery mechanisms in this order:
+
+1. Allow Lambda's asynchronous retries to resume the operation after its lease
+  expires.
+2. Correct a transient dependency or IAM failure and replay the original event
+  from the mover's Lambda DLQ after retries are exhausted.
+3. Replay the original canonical event from the shared file-transfer EventBridge
+  DLQ if EventBridge could not invoke Lambda.
+4. Escalate for manual reconciliation if an S3 side effect or EventBridge
+  publication is ambiguous.
+
+Never construct a replacement event by hand. The top-level EventBridge ID,
+correlation ID and exact S3 version are part of the operation contract. Search
+the mover's logs using the source event ID or correlation ID; do not retrieve
+or log object content during recovery.
 
 ## Identify the failed target
 
@@ -45,6 +76,92 @@ For EventBridge DLQ messages, the message attributes include `ERROR_CODE`,
 `ERROR_MESSAGE`, `EXHAUSTED_RETRY_CONDITION` and `RETRY_ATTEMPTS` as well as
 the rule and target ARNs. For Lambda DLQ messages, use `RequestID`, `ErrorCode`
 and `ErrorMessage` to find the failed invocation in the Lambda log group.
+
+## Inspect the mover operation record
+
+The following read-only commands require AWS CLI v2 and `jq`. Run them from a
+trusted operator workstation with an approved AWS session for the affected
+account and environment.
+
+```sh
+region="eu-west-2"
+environment="<development|production>"
+correlation_id="<correlation-id>"
+operation="<STAGE|ROUTE>"
+table_name="integration-hub-file-transfer-${environment}-file-transfer-idempotency"
+
+key=$(
+  jq -nc \
+    --arg correlation_id "$correlation_id" \
+    --arg operation "$operation" \
+    '{
+      concurrencyId: {S: $correlation_id},
+      operation: {S: $operation}
+    }'
+)
+
+aws dynamodb get-item \
+  --region "$region" \
+  --table-name "$table_name" \
+  --key "$key" \
+  --consistent-read \
+  --output json
+```
+
+Record the status, owner, lease expiry, source bucket/key/version, destination
+version, multipart upload ID, copy token, receipt version and output EventBridge
+ID where present. The recovery actions below assume the lease has expired or
+the previous invocation has demonstrably ended.
+
+| Status | Meaning | Recovery action |
+| --- | --- | --- |
+| `IN_PROGRESS` | Claimed, with no durable copy checkpoint. | Wait for an active lease. After expiry, replay the original event. |
+| `MULTIPART_CREATED` | A known multipart upload exists. | Replay; the mover lists parts and copies only missing ranges. |
+| `MULTIPART_ABORTED` | A handled copy failure was aborted. | Correct the failure and replay; a new upload will be created. |
+| `COPIED` | The exact destination version is stored. | Replay; the mover verifies that version without creating another copy. |
+| `VERIFIED` | Destination attributes have been verified. | Replay; the mover deletes only the recorded source version. |
+| `SOURCE_DELETED` | The exact source version was deleted. | Replay; the mover does not read or copy the deleted source. |
+| `RECEIPT_CREATED` | The optional STAGE receipt version is stored. | Replay; the mover proceeds to publication. |
+| `PUBLISHED` | EventBridge accepted the completion event. | Replay; the mover only marks the operation `COMPLETED`. |
+| `COMPLETED` | The operation finished. | Do not replay or remove the record. |
+
+An unhandled timeout can leave an incomplete multipart upload. Destination
+buckets abort incomplete uploads after one day. Do not manually abort an upload
+unless its ID exactly matches the operation record and no invocation holds an
+active lease.
+
+## Check exact object versions
+
+For a checkpoint before `SOURCE_DELETED`, confirm the recorded exact source
+version exists:
+
+```sh
+aws s3api head-object \
+  --region "$region" \
+  --bucket "<source-bucket>" \
+  --key "<source-key>" \
+  --version-id "<source-version-id>" \
+  --expected-bucket-owner "<account-id>"
+```
+
+For `COPIED` or later, inspect the exact recorded destination version. Check its
+size, SSE-KMS key, metadata, tags and content headers. Use `get-object-tagging`
+with that exact version ID to inspect tags; `head-object` does not return their
+values. Do not substitute the latest object version.
+
+Stop and escalate when:
+
+* a source version is missing before `SOURCE_DELETED`
+* the destination version does not match the operation record
+* more than one destination version carries the deterministic copy token
+* multipart completion may have succeeded but no unique destination version
+  can be identified
+* publication may have succeeded but the operation is not `PUBLISHED`
+
+EventBridge acceptance and the DynamoDB `PUBLISHED` checkpoint are not atomic.
+A publication retry can produce two envelopes with the same
+`detail.metadata.idempotencyKey`. This is expected at-least-once behaviour;
+consumers must deduplicate that key.
 
 ## Retrieve and inspect one message
 
@@ -92,17 +209,22 @@ aws lambda invoke \
 ```
 
 A `202` response means Lambda accepted the replay; it does not mean that the
-function completed successfully. The file-transfer adapters and movers use
-idempotency controls, so replaying the same event will not duplicate a completed
-operation. A replay of a file-action event uses the current matching dispatch
-configuration, so check that configuration before replaying it.
+function completed successfully. The adapters and movers use idempotency
+controls while their records are retained, but event publication is at least
+once and downstream consumers must still deduplicate requests. Replaying a
+`FileRouted.v1` input to the file-action adapter can use the current matching
+dispatch configuration if processing is not already deduplicated. Check that
+configuration before replaying; see [File action dispatch](file-action-dispatch.html).
 
 ## Verify and remove the message
 
 Use the affected Lambda log group and the EventBridge event-bus log group to
 confirm that the replay completed. For file movement, check that the expected
-object version reached its intended bucket. For clean files with a configured
-action, confirm the `FileActionExecutionRequested.v1` event was published.
+object version reached its intended bucket and the operation record reached
+`COMPLETED`. Confirm the completion event contains the stored destination
+version and deterministic idempotency key. For clean files with a configured
+action or notification, confirm the `FileActionExecutionRequested.v1` event was
+published.
 
 Delete the DLQ message only after those checks succeed, using the current receipt
 handle from `received-message.json`:
@@ -116,6 +238,23 @@ aws sqs delete-message \
 If the replay does not complete, do not delete the message. Let its visibility
 timeout expire or extend it while the investigation continues. Do not replay the
 same message repeatedly before understanding the latest failure.
+
+## Prohibited mover recovery actions
+
+Do not:
+
+* delete or alter the DynamoDB operation record to bypass a checkpoint
+* remove Powertools idempotency records manually
+* replay from the original source after `SOURCE_DELETED`
+* delete a destination version carrying a mover copy token without establishing
+  the exact operation state
+* abort a multipart upload used by an active lease
+* change a GuardDuty result tag to force a route
+
+After `SOURCE_DELETED`, replay only the original canonical event to the same
+mover so it resumes its checkpoint; do not re-upload or reconstruct a source
+event. When side effects are ambiguous, preserve the record and object versions
+and escalate rather than risking another copy or deleting the wrong version.
 
 ## Preserve the record
 
