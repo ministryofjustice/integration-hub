@@ -1,0 +1,124 @@
+---
+owner_slack: "#integration-hub"
+title: File action dispatch
+weight: 7
+last_reviewed_on: 2026-10-15
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+This guide is for Integration Hub technical team members configuring or
+investigating actions and notifications for files in the clean bucket.
+
+## Service behaviour
+
+The file-action adapter finds the most specific dispatch configuration for the
+destination object key. It publishes at most one
+`FileActionExecutionRequested.v1` event for that configuration. This requests an
+action or notification; it does not confirm that either has completed.
+
+Only clean `FileRouted.v1` events for the configured clean bucket reach the
+adapter. Quarantine and investigation routes do not produce action requests.
+
+## Check the dispatch configuration
+
+Terraform creates dispatch secrets from `file_dispatch_prefixes` in
+[`locals-dispatch.tf`](https://github.com/ministryofjustice/modernisation-platform-environments/blob/main/terraform/environments/integration-hub-file-transfer/locals-dispatch.tf).
+The identity and configured prefix together identify the start of the full
+object key. For example, identity `example-transfer-identity` and prefix
+`/app-1/` match keys beneath `example-transfer-identity/app-1/`.
+
+Each secret contains an optional action and notification destinations:
+
+```json
+{
+  "action": {
+    "name": "place-on-sqs",
+    "queueArn": "arn:aws:sqs:eu-west-2:123456789012:destination"
+  },
+  "notifications": {
+    "email": "consumer@example.invalid",
+    "slack": null,
+    "teams": "https://example.invalid/teams-webhook"
+  }
+}
+```
+
+This example shows the secret's structure. Before using an action, check that
+the service which carries it out (the executor) is deployed. Action-specific
+configuration and routing rules are defined when executors are introduced.
+
+`action` is either `null` or an object with a non-empty `name`. Other action
+properties contain private configuration used by the selected executor. Each
+notification is either `null` or its destination value. A `null` value means
+that the action or notification is not configured.
+
+The requested event contains only `action.name`, the names of configured
+notification types and a reference to the exact secret version used.
+Private action configuration and notification destinations stay in Secrets
+Manager. A secret can configure notifications without an action. If neither an
+action nor a notification destination is configured, processing succeeds
+without publishing an event.
+
+## Check prefix matching
+
+Use the destination object's full key to check which configuration applies.
+The adapter first looks for a secret matching the complete key, then tries each
+parent prefix from longest to shortest. For `identity/group/reports/test.csv`,
+it tries:
+
+1. `identity/group/reports/test.csv`
+2. `identity/group/reports/`
+3. `identity/group/`
+4. `identity/`
+
+The adapter uses the first secret it finds, even if that secret has no action
+or notification configured. If a secret does not exist, it tries the next
+prefix. If no secret matches, processing succeeds without publishing an event.
+
+If the matching secret cannot be read or has an invalid structure, the
+invocation fails. Lambda retries and dead-letter handling apply. The adapter
+does not try a less-specific configuration.
+
+## Check delivery and duplicate requests
+
+The adapter uses the route event's `detail.metadata.idempotencyKey` to recognise
+requests it has already processed. Replaying the same route with a different
+EventBridge event ID does not publish another request while the adapter's
+idempotency record exists.
+
+`detail.data.actionExecutionId` is a deterministic UUID derived from the source
+route idempotency key, matched secret ARN and exact secret version ID. The output
+idempotency key is `action-request:{actionExecutionId}`.
+
+When the adapter processes a different configuration version, it produces a
+different execution ID. Changing a secret alone does not bypass the adapter's
+existing idempotency record.
+
+The request retains the original `fileId` and `correlationId`, with the
+`FileRouted.v1` EventBridge ID as `causationId`. EventBridge publication is at
+least once: a retry can publish the same request with a different EventBridge
+event ID. Do not use the EventBridge event ID to identify duplicate requests.
+
+Rules can route requests using `detail.data.action.name` or names in
+`detail.data.notifications`. One request can be delivered to multiple downstream
+queues. Each consumer must use `actionExecutionId` or the equivalent
+`detail.metadata.idempotencyKey` to avoid processing the same request twice.
+
+## Protect secret values
+
+The adapter relies on its EventBridge rule to select canonical `FileRouted.v1`
+events. It validates the matching secret's JSON structure and action name.
+Downstream executors read the action-specific configuration from the exact
+secret version identified by `configurationReference.secretArn` and
+`configurationReference.secretVersionId` in the event's `detail.data`.
+
+Do not write secret values to EventBridge, CloudWatch Logs or dead-letter
+queues. Adapter logs contain only non-sensitive object identifiers,
+secret-version identifiers, the action name and configured notification type
+names.
+
+For help investigating a failed action request or replaying an event, see
+[Investigating file transfer service issues](investigating-file-transfer-service-issues.html)
+and [Investigating and replaying file transfer DLQ messages](investigating-and-replaying-file-transfer-dlq-messages.html).

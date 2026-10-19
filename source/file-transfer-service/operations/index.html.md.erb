@@ -2,7 +2,7 @@
 owner_slack: "#integration-hub"
 title: Service guidance
 weight: 2
-last_reviewed_on: 2026-09-22
+last_reviewed_on: 2026-10-19
 review_in: 3 months
 ---
 
@@ -17,8 +17,15 @@ failures.
 
 ## [Investigating file transfer service issues](investigating-file-transfer-service-issues.html)
 
-Trace a file through the service and identify where it stopped.
+Trace a file using lifecycle identifiers, understand staging and routing
+guarantees, and identify where it stopped.
 
 ## [Investigating and replaying file transfer DLQ messages](investigating-and-replaying-file-transfer-dlq-messages.html)
 
-Inspect a dead-letter queue message, fix its root cause and replay it safely.
+Inspect a dead-letter queue message and mover checkpoint, fix the root cause
+and replay safely.
+
+## [File action dispatch](file-action-dispatch.html)
+
+Check how clean files trigger actions and notifications, which configuration
+applies and how to handle duplicate requests.

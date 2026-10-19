@@ -2,7 +2,7 @@
 owner_slack: "#integration-hub"
 title: Troubleshooting an SFTP or FTPS AWS Transfer user
 weight: 3
-last_reviewed_on: 2026-09-01
+last_reviewed_on: 2026-10-13
 review_in: 3 months
 ---
 
@@ -36,6 +36,13 @@ Terraform creates the initial user secret from `transfer_server_users` in
 It deliberately ignores later secret-value changes, so credentials stay out of
 Terraform state.
 
+Terraform also supplies the shared Transfer role, session policy and logical
+home directory configuration to the custom IdP. After authentication, Transfer
+assumes that role and applies the session policy, using `${transfer:UserName}`
+to restrict access to the user's S3 prefix. The secret contains authentication
+and connection restrictions only; role, policy and home directory fields in a
+secret are ignored.
+
 ## Create or change a user
 
 1. Add the user to `transfer_server_users` for the required environment. Use a
@@ -67,6 +74,22 @@ empty `publicKeys` is valid only when the client authenticates with a configured
 password. Keep the secret username lowercase: the custom IdP normalises login
 names to lowercase before comparing them.
 
+Terraform creates the initial record with a null password. FTPS password
+authentication is unavailable until an operator publishes a complete new secret
+version with a non-null password. The IdP reads the current secret version once
+for either FTPS password authentication or SFTP public-key authentication.
+
+When changing a password, public keys or connection restrictions, publish a
+complete replacement JSON record through the approved privileged access route.
+Omitted fields are not preserved automatically. Terraform ignores later secret
+value changes, so updating `transfer_server_users` alone does not update the
+existing secret. Keep the secret's `ipv4_allow_list` and Terraform-managed
+security-group ingress rules aligned when changing source networks.
+
+Deleting the user secret disables that user's authentication. Coordinate this
+with removal from `transfer_server_users` so the Terraform configuration no
+longer declares the user.
+
 ## Diagnose authentication failures
 
 Start with the AWS Transfer server's structured CloudWatch logs, then inspect
@@ -80,7 +103,7 @@ Lambda log records the specific reason without logging credentials.
 | `User secret does not exist` | The username is absent from `transfer_server_users`, the Terraform change has not been applied, or the login name is wrong. | Check the generated secret name and use the lowercase username. |
 | `User secret is empty`, `not valid JSON` or a required field is invalid | The secret has been overwritten, malformed or only partly updated. | Restore a complete JSON object with string-list values for `publicKeys`, `ipv4_allow_list` and `server_id_allow_list`. |
 | `User secret username does not match request` | The `username` field does not match the lowercased login name. | Correct the field and retry. |
-| `Source IP is missing` or `Source IP is not allowed for this user` | The client is behind an unlisted NAT address, or the user is connecting from a new address. | Confirm the public egress IP and add the smallest necessary CIDR range in `transfer_server_users`; apply Terraform. |
+| `Source IP is missing` or `Source IP is not allowed for this user` | The client is behind an unlisted NAT address, or the user is connecting from a new address. | Confirm the public egress IP, update `transfer_server_users` with the smallest necessary CIDR range and apply Terraform for ingress rules. Publish a complete replacement secret with the matching `ipv4_allow_list`. |
 | Connection times out before authentication | The source IP does not have a matching security-group rule, or a client or network firewall blocks the port. | Confirm the applied CIDR rule and permit SFTP port `22`, or FTPS port `21` plus passive ports `8192` to `8200`. |
 | `User ... is not allowed on this server` | The server ID is not in `server_id_allow_list`. | Add the intended Transfer server ID, or use an empty list only when access to all Transfer servers is intended. |
 | `No public keys configured for user` | The client attempted public-key authentication but the secret has no key. | Add the user's valid SSH public key to `publicKeys`. |
