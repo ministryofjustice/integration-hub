@@ -1,0 +1,63 @@
+---
+owner_slack: "#integration-hub"
+title: Pull from a pre-signed URL
+weight: 3
+last_reviewed_on: 2026-10-16
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+Pull from a pre-signed URL is a way for authorised users to collect processed
+files through the Integration Hub file-transfer portal. When a matching clean
+file is ready, the Integration Hub makes a separate copy in a private,
+encrypted pickup bucket and sends a Slack notification with a link to the
+portal.
+
+Use this pattern when your users can collect files through the authenticated
+portal and you do not want to operate an SFTP or FTPS server to receive them.
+
+## How the pattern works
+
+![Diagram showing how users collect processed files through the Integration Hub file-transfer portal.](/images/supported-patterns-pull-from-presigned-url.png)
+
+When a file matches a configured source prefix and Slack notification, the
+Integration Hub copies the exact clean file version to a recipient-specific
+location in the pickup bucket. The copy is encrypted separately from the clean
+file, and the original remains unchanged.
+
+The Integration Hub sends a Slack notification with a link to the file-transfer
+portal and the encoded path to the pickup file. Users sign in with their
+organisational account and collect the file through the portal. Access is
+read-only and limited to the recipient's pickup directory.
+
+Pickup files expire after seven days, so authorised users should collect them within that period.
+
+## What your service receives
+
+Your nominated users receive a Slack notification when a file is ready, with a
+portal link and the file's pickup path. They need to be members of an
+authorised group configured for the pickup directory.
+
+This pattern does not provide your service with a pre-signed S3 URL, S3
+credentials, or direct bucket access. Collection takes place through the
+authenticated file-transfer portal.
+
+## Discuss this pattern
+
+This pattern is still in design. To discuss whether it is suitable for your
+service, post in `#ask-integration-hub` with:
+
+* the service that will send files to the Integration Hub
+* the service and users that will collect the files
+* the source prefix and Slack notification you want to use
+* the environment you need, such as development or production
+* your expected file volume, size and collection frequency
+* your data-retention requirements
+
+Do not include passwords, private keys, file contents or other sensitive data.
+
+## Getting help
+
+For a question about this draft pattern, post in `#ask-integration-hub`.
+Include the services involved and the environment you are planning for.
