@@ -107,8 +107,11 @@ separately. Authentication success alone does not mean file delivery passed.
 AWS CLI v2 and Python 3 are supplied by the GitHub-hosted Ubuntu runner; the
 script uses no additional Python packages.
 
-The [smoke-test script](tests/file_transfer/smoke_test.py) uses this test-only
-route, matching the MP Terraform configuration:
+The [L1 smoke test](tests/file_transfer/smoke_test.py) and
+[L2 functional test](tests/file_transfer/functional_test.py) use this test-only
+route, matching the MP Terraform configuration. Both use shared AWS, polling,
+and verification code from [harness.py](tests/file_transfer/harness.py); its
+mocked unit tests are in [test_harness.py](tests/file_transfer/test_harness.py).
 
 | Setting | Value |
 | --- | --- |

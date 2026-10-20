@@ -103,7 +103,7 @@ jobs:
 
       - name: L1 smoke - verify a small file arrives unchanged
         id: l1_smoke
-        run: python3 -B tests/file_transfer/smoke_test.py --layer l1
+        run: python3 -B tests/file_transfer/smoke_test.py
 
       - name: Report L1 smoke result
         if: always()
@@ -133,18 +133,18 @@ jobs:
             echo "Scope: one happy-path file on the direct-to-S3 route."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: L2 integrity - verify edge-case files arrive unchanged
-        id: l2_integrity
-        run: python3 -B tests/file_transfer/smoke_test.py --layer l2
+      - name: L2 functional - verify edge-case delivery
+        id: l2_functional
+        run: python3 -B tests/file_transfer/functional_test.py
 
       - name: Report L2 integrity result
         if: always()
         shell: bash
         env:
-          TEST_OUTCOME: ${{ steps.l2_integrity.outcome }}
+          TEST_OUTCOME: ${{ steps.l2_functional.outcome }}
         run: |
           {
-            echo "### L2 integrity fixtures: direct upload to S3"
+            echo "### L2 functional checks: direct upload to S3"
             echo "Test environment only. Uses unique synthetic data."
             echo ""
             case "$TEST_OUTCOME" in
