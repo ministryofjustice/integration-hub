@@ -1,3 +1,4 @@
+import json
 import io
 import subprocess
 import unittest
@@ -13,6 +14,8 @@ class SmokeTestTests(unittest.TestCase):
         """Give each test a fresh simulated S3 service and clock, with no AWS calls."""
         self.elapsed = 0
         self.uploaded = b""
+        self.upload_metadata = {}
+        self.upload_content_type = ""
         self.incoming_key = ""
         self.destination_key = ""
         self.listings = 0
@@ -55,6 +58,10 @@ class SmokeTestTests(unittest.TestCase):
             source = Path(arguments[arguments.index("--body") + 1])
             self.local_paths.append(source)
             self.uploaded = source.read_bytes()
+            if "--metadata" in arguments:
+                self.upload_metadata = json.loads(arguments[arguments.index("--metadata") + 1])
+            if "--content-type" in arguments:
+                self.upload_content_type = arguments[arguments.index("--content-type") + 1]
             return {}
         self.assertEqual(bucket, smoke_test.DESTINATION_BUCKET)
         if operation == "list-objects-v2":
@@ -71,6 +78,15 @@ class SmokeTestTests(unittest.TestCase):
             self.local_paths.append(destination)
             destination.write_bytes(b"incorrect" if self.corrupt_delivery else self.uploaded)
             return {}
+        if operation == "head-object":
+            self.assertEqual(arguments[arguments.index("--key") + 1], self.destination_key)
+            return {
+                "ContentLength": len(self.uploaded),
+                "ContentType": self.upload_content_type,
+                "Metadata": self.upload_metadata,
+                "ServerSideEncryption": "aws:kms",
+                "SSEKMSKeyId": "test-destination-key",
+            }
         self.fail(f"Unexpected AWS operation: {operation}")
 
     def test_l1_checks_one_small_file_and_compares_contents(self):
@@ -100,7 +116,10 @@ class SmokeTestTests(unittest.TestCase):
         expected_calls = [
             operation
             for _ in range(4)
-            for operation in ("put-object", "list-objects-v2", "list-objects-v2", "get-object")
+            for operation in (
+                "put-object", "list-objects-v2", "list-objects-v2", "get-object",
+                "head-object",
+            )
         ]
         self.assertEqual(self.calls, expected_calls)
         self.assertEqual(self.elapsed, 4)
@@ -110,6 +129,12 @@ class SmokeTestTests(unittest.TestCase):
         for scenario in ["zero-byte file", "binary file", "2 MiB file", "special-character filename"]:
             self.assertIn(f"PASS: {scenario} delivered unchanged", messages)
         self.assertIn("PASS: all 4 file-transfer scenarios completed.", messages)
+        self.assertEqual(
+            self.upload_metadata,
+            {"file-transfer-test-run-id": self.incoming_key.split("/")[2]},
+        )
+        self.assertEqual(self.upload_content_type, "application/octet-stream")
+        self.assertIn("metadata and KMS encryption verified", messages)
         self.assertNotIn("small text delivered unchanged", messages)
         self.assertIn("special chars + (1).txt", messages)
 

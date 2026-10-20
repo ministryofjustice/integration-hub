@@ -119,12 +119,12 @@ route, matching the MP Terraform configuration:
 | Region | `eu-west-2` |
 
 L1 uploads one small synthetic text file. L2 uploads zero-byte, binary, 2 MiB,
-and filename-with-spaces-and-punctuation fixtures. For each file, the harness
-polls `ListObjectsV2` for the exact destination key, downloads it with
-`GetObject`, and compares the bytes. Each layer has one overall timeout. The
-harness relies on bucket-default KMS encryption and never writes to the
-destination or deletes AWS objects. Local temporary files are removed on
-success or failure.
+and filename-with-spaces-and-punctuation fixtures. For each L2 file, the
+harness polls `ListObjectsV2` for the exact destination key, downloads it with
+`GetObject`, compares the bytes, and checks that content type and user metadata
+were preserved and that the object uses KMS encryption. Each layer has one
+overall timeout. The harness never writes to the destination or deletes AWS
+objects. Local temporary files are removed on success or failure.
 Destination lifecycle rules manage current and noncurrent file expiry
 asynchronously; source and intermediate objects remain subject to the
 service's existing retention rules.
@@ -135,9 +135,11 @@ harness itself has no diagnostic-log access. Do not copy a fixture into the
 destination to make a test pass.
 
 L1 exercises the happy path for the `push-to-s3` route. L2 currently checks
-content integrity for the additional fixtures on that route; it is not yet the
-full L2 route/scenario matrix. These checks do not cover API, SFTP/FTPS or
-browser uploads, malicious-file rejection, retry/idempotency guarantees or
-completion notifications. External notifications and automatic post-deployment
-triggering remain follow-up work. Live delivery must be verified separately
-from these local unit checks.
+content integrity, metadata preservation, and KMS encryption for the additional
+fixtures on that route; it is not yet the full L2 route/scenario matrix. Tag
+checks and live negative cases are not included. API, SFTP/FTPS or browser
+uploads, malicious-file rejection, retry/idempotency guarantees and completion
+notifications are also not covered.
+External notifications and automatic post-deployment triggering remain
+follow-up work. Live delivery must be verified separately from these local
+unit checks.

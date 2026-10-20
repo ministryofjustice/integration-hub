@@ -85,9 +85,18 @@ def run_smoke_test(timeout_seconds=300, poll_seconds=5, layer="l1"):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError(f"Timed out before uploading {scenario}.")
+            upload_arguments = [
+                "--bucket", INCOMING_BUCKET,
+                "--key", incoming_key,
+                "--body", str(source),
+            ]
+            if layer == "l2":
+                upload_arguments.extend([
+                    "--content-type", "application/octet-stream",
+                    "--metadata", json.dumps({"file-transfer-test-run-id": run_token}),
+                ])
             aws_s3(
-                "put-object", "--bucket", INCOMING_BUCKET,
-                "--key", incoming_key, "--body", str(source),
+                "put-object", *upload_arguments,
                 timeout=min(30, remaining),
             )
             print(f"Waiting for exact destination key: s3://{DESTINATION_BUCKET}/{destination_key}", flush=True)
@@ -111,6 +120,25 @@ def run_smoke_test(timeout_seconds=300, poll_seconds=5, layer="l1"):
                     )
                     if delivered.read_bytes() != fixture:
                         raise RuntimeError(f"Delivered contents do not match the {scenario} fixture.")
+                    if layer == "l2":
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise TimeoutError(f"Timed out before checking {scenario} metadata and encryption.")
+                        head = aws_s3(
+                            "head-object", "--bucket", DESTINATION_BUCKET,
+                            "--key", destination_key, timeout=min(30, remaining),
+                        )
+                        if head.get("ContentType") != "application/octet-stream":
+                            raise RuntimeError(f"Delivered {scenario} has unexpected content type.")
+                        metadata = head.get("Metadata", {})
+                        if metadata.get("file-transfer-test-run-id") != run_token:
+                            raise RuntimeError(f"Delivered {scenario} metadata was not preserved.")
+                        if (
+                            head.get("ServerSideEncryption") != "aws:kms"
+                            or not head.get("SSEKMSKeyId")
+                        ):
+                            raise RuntimeError(f"Delivered {scenario} is not encrypted with KMS.")
+                        print(f"PASS: {scenario} metadata and KMS encryption verified.", flush=True)
                     print(f"PASS: {scenario} delivered unchanged ({len(fixture)} bytes).", flush=True)
                     break
                 remaining = deadline - time.monotonic()

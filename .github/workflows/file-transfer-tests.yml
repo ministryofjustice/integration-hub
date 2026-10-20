@@ -149,8 +149,8 @@ jobs:
             echo ""
             case "$TEST_OUTCOME" in
               success)
-                echo "**PASS: zero-byte, binary, 2 MiB, and special-character filename fixtures arrived unchanged.**"
-                echo "Each fixture was downloaded from its exact destination key and compared byte for byte."
+                echo "**PASS: zero-byte, binary, 2 MiB, and special-character filename fixtures passed delivery checks.**"
+                echo "Each fixture was checked at its exact destination key, downloaded and compared byte for byte; content type, user metadata, and KMS encryption were also verified."
                 ;;
               failure)
                 echo "**FAIL: an L2 integrity fixture could not be verified.**"
@@ -162,5 +162,5 @@ jobs:
                 ;;
             esac
             echo ""
-            echo "Scope: integrity fixtures for the direct-to-S3 route only; this is not the complete L2 route and negative-case matrix."
+            echo "Scope: integrity, metadata, and KMS encryption checks for the direct-to-S3 route; this is not the complete L2 route and negative-case matrix."
           } >> "$GITHUB_STEP_SUMMARY"
