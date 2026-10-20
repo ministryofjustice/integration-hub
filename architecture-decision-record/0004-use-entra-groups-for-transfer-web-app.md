@@ -1,4 +1,4 @@
-# 3. Use Entra Groups for Transfer Web App
+# 4. Use Entra Groups for Transfer Web App
 
 Date: 2026-10-20
 
