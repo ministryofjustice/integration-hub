@@ -1,10 +1,10 @@
 # 3. Account strategy
 
-Date: 2026-06-29
+Date: 2026-10-20
 
 ## Status
 
-🤔 Proposed
+✅ Accepted
 
 ## Context
 
