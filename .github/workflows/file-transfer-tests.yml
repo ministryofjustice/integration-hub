@@ -46,7 +46,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/smoke-test')
     runs-on: ubuntu-latest
     environment: smoke-test
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -163,4 +163,35 @@ jobs:
             esac
             echo ""
             echo "Scope: integrity, metadata, and KMS encryption checks for the direct-to-S3 route; this is not the complete L2 route and negative-case matrix."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: L3 resilience - verify concurrent file delivery
+        id: l3_concurrency
+        run: python3 -B tests/file_transfer/resilience_test.py
+
+      - name: Report L3 concurrency result
+        if: always()
+        shell: bash
+        env:
+          TEST_OUTCOME: ${{ steps.l3_concurrency.outcome }}
+        run: |
+          {
+            echo "### L3 resilience: concurrent file delivery"
+            echo "Test environment only. Uses three unique synthetic files."
+            echo ""
+            case "$TEST_OUTCOME" in
+              success)
+                echo "**PASS: all three concurrently uploaded files arrived at their exact destinations unchanged.**"
+                ;;
+              failure)
+                echo "**FAIL: concurrent file delivery could not be verified.**"
+                echo "Check the error and test run ID in the L3 step logs."
+                ;;
+              *)
+                echo "**NOT COMPLETED: L3 concurrency check did not record a pass.**"
+                echo "Check earlier steps, environment approvals, or cancellation."
+                ;;
+            esac
+            echo ""
+            echo "Scope: concurrent delivery of independent files only; no retry, DLQ/replay, or tenant-isolation test is included."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -101,9 +101,10 @@ deployment branch restrictions and reviewer protections agreed by the team.
 
 In GitHub, select **Actions > File Transfer Tests > Run workflow**, choose an
 authorised branch (normally `main`) and run it. After local checks pass, the live
-job assumes the dedicated role, verifies its identity and runs the L1 smoke
-check followed by L2 integrity fixtures. The run summary reports each layer
-separately. Authentication success alone does not mean file delivery passed.
+job assumes the dedicated role, verifies its identity and runs L1 smoke, L2
+functional, and L3 concurrent-delivery checks. The run summary reports each
+layer separately. Authentication success alone does not mean file delivery
+passed.
 AWS CLI v2 and Python 3 are supplied by the GitHub-hosted Ubuntu runner; the
 script uses no additional Python packages.
 
@@ -112,6 +113,8 @@ The [L1 smoke test](tests/file_transfer/smoke_test.py) and
 route, matching the MP Terraform configuration. Both use shared AWS, polling,
 and verification code from [harness.py](tests/file_transfer/harness.py); its
 mocked unit tests are in [test_harness.py](tests/file_transfer/test_harness.py).
+The [L3 resilience test](tests/file_transfer/resilience_test.py) exercises
+three independent uploads at the same time.
 
 | Setting | Value |
 | --- | --- |
@@ -140,9 +143,10 @@ destination to make a test pass.
 L1 exercises the happy path for the `push-to-s3` route. L2 currently checks
 content integrity, metadata preservation, and KMS encryption for the additional
 fixtures on that route; it is not yet the full L2 route/scenario matrix. Tag
-checks and live negative cases are not included. API, SFTP/FTPS or browser
-uploads, malicious-file rejection, retry/idempotency guarantees and completion
-notifications are also not covered.
+checks and live negative cases are not included. L3 currently checks concurrent
+delivery of independent files only; retries, DLQ/replay, tenant isolation, and
+alerting are not yet covered. API, SFTP/FTPS or browser uploads,
+malicious-file rejection, and completion notifications are also not covered.
 External notifications and automatic post-deployment triggering remain
 follow-up work. Live delivery must be verified separately from these local
 unit checks.

@@ -1,6 +1,7 @@
 import io
 import json
 import subprocess
+import threading
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -34,6 +35,39 @@ class HarnessTests(unittest.TestCase):
         sleep_patch = patch.object(harness.time, "sleep", side_effect=self.advance_time)
         sleep_patch.start()
         self.addCleanup(sleep_patch.stop)
+
+    def fake_concurrent_aws(self, operation, *arguments, timeout=30):
+        self.assertGreater(timeout, 0)
+        bucket = arguments[arguments.index("--bucket") + 1]
+        if operation == "put-object":
+            self.assertEqual(bucket, harness.INCOMING_BUCKET)
+            self.upload_barrier.wait(timeout=5)
+            incoming_key = arguments[arguments.index("--key") + 1]
+            source = Path(arguments[arguments.index("--body") + 1])
+            relative_key = incoming_key[len(harness.INCOMING_PREFIX):]
+            with self.concurrent_lock:
+                self.uploaded_by_key[relative_key] = source.read_bytes()
+            return {}
+        self.assertEqual(bucket, harness.DESTINATION_BUCKET)
+        if operation == "list-objects-v2":
+            prefix = arguments[arguments.index("--prefix") + 1]
+            with self.concurrent_lock:
+                return {
+                    "Contents": [
+                        {"Key": harness.DESTINATION_PREFIX + key}
+                        for key in self.uploaded_by_key
+                        if key.startswith(prefix[len(harness.DESTINATION_PREFIX):])
+                    ]
+                }
+        if operation == "get-object":
+            destination_key = arguments[arguments.index("--key") + 1]
+            relative_key = destination_key[len(harness.DESTINATION_PREFIX):]
+            destination = Path(arguments[-1])
+            with self.concurrent_lock:
+                destination.write_bytes(self.uploaded_by_key[relative_key])
+                self.downloaded_keys.append(destination_key)
+            return {}
+        self.fail(f"Unexpected AWS operation: {operation}")
 
     def advance_time(self, seconds):
         self.elapsed += seconds
@@ -136,6 +170,23 @@ class HarnessTests(unittest.TestCase):
         self.assertIn("metadata and KMS encryption verified", messages)
         self.assertNotIn("small text delivered unchanged", messages)
         self.assertIn("special chars + (1).txt", messages)
+
+    def test_l3_uploads_and_verifies_concurrent_files_independently(self):
+        self.upload_barrier = threading.Barrier(3)
+        self.concurrent_lock = threading.Lock()
+        self.uploaded_by_key = {}
+        self.downloaded_keys = []
+        aws_patch = patch.object(harness, "aws_s3", side_effect=self.fake_concurrent_aws)
+        aws_patch.start()
+        self.addCleanup(aws_patch.stop)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            harness.run_concurrent_delivery_test(timeout_seconds=10, poll_seconds=1)
+
+        self.assertEqual(len(self.uploaded_by_key), 3)
+        self.assertEqual(len(self.downloaded_keys), 3)
+        self.assertEqual(len(set(self.downloaded_keys)), 3)
+        self.assertIn("PASS: all 3 concurrent files arrived independently.", output.getvalue())
 
     def test_missing_delivery_times_out_without_download(self):
         self.never_deliver = True

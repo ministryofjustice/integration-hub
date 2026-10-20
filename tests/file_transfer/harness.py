@@ -4,6 +4,7 @@ import sys
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
@@ -130,9 +131,110 @@ def run_delivery_test(test_name, scenarios_for_run, verify_metadata=False,
     print(f"PASS: all {len(scenarios)} file-transfer scenarios completed.", flush=True)
 
 
+def run_concurrent_delivery_test(file_count=3, timeout_seconds=300, poll_seconds=5):
+    """Upload independent fixtures concurrently and verify each exact delivery."""
+    if file_count < 2:
+        raise ValueError("Concurrent delivery needs at least two files.")
+    if timeout_seconds <= 0 or poll_seconds <= 0:
+        raise ValueError("Timeout and polling interval must be positive.")
+
+    run_token = uuid.uuid4().hex
+    scenarios = [
+        (
+            f"concurrent file {index}",
+            f"concurrent-{index}.bin",
+            f"{run_token}:{index}\n".encode() + bytes([index]) * 4096,
+        )
+        for index in range(1, file_count + 1)
+    ]
+    print("File-transfer test: L3 concurrent delivery.", flush=True)
+    print("Environment: test | Route: direct upload to S3", flush=True)
+    print(f"Test run ID: {run_token}", flush=True)
+    print(f"Concurrent files: {file_count} | Overall timeout: {timeout_seconds:g} seconds", flush=True)
+
+    with tempfile.TemporaryDirectory(prefix="file-transfer-resilience-") as directory:
+        deadline = time.monotonic() + timeout_seconds
+        expected = {}
+        uploads = []
+        for index, (scenario, filename, fixture) in enumerate(scenarios, start=1):
+            relative_key = f"{run_token}/{filename}"
+            incoming_key = INCOMING_PREFIX + relative_key
+            destination_key = DESTINATION_PREFIX + relative_key
+            source = Path(directory) / f"source-{index}"
+            source.write_bytes(fixture)
+            expected[destination_key] = (scenario, fixture, Path(directory) / f"delivered-{index}")
+            uploads.append((scenario, incoming_key, source))
+
+        with ThreadPoolExecutor(max_workers=file_count) as executor:
+            futures = []
+            for scenario, incoming_key, source in uploads:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Timed out before uploading concurrent fixtures.")
+                print(f"Uploading {scenario}: s3://{INCOMING_BUCKET}/{incoming_key}", flush=True)
+                futures.append(
+                    executor.submit(
+                        aws_s3,
+                        "put-object",
+                        "--bucket", INCOMING_BUCKET,
+                        "--key", incoming_key,
+                        "--body", str(source),
+                        timeout=min(30, remaining),
+                    )
+                )
+            try:
+                for future in as_completed(futures, timeout=max(deadline - time.monotonic(), 0)):
+                    future.result()
+            except TimeoutError as error:
+                raise TimeoutError("Timed out uploading concurrent fixtures.") from error
+
+        expected_keys = set(expected)
+        prefix = f"{DESTINATION_PREFIX}{run_token}/"
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Timed out waiting for concurrent file delivery.")
+            listing = aws_s3(
+                "list-objects-v2", "--bucket", DESTINATION_BUCKET,
+                "--prefix", prefix, timeout=min(30, remaining),
+            )
+            delivered_keys = {
+                item["Key"] for item in listing.get("Contents", [])
+            }
+            if expected_keys.issubset(delivered_keys):
+                break
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(poll_seconds, remaining))
+
+        for destination_key, (scenario, fixture, delivered) in expected.items():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"Timed out before downloading {scenario}.")
+            aws_s3(
+                "get-object", "--bucket", DESTINATION_BUCKET,
+                "--key", destination_key, str(delivered),
+                timeout=min(30, remaining),
+            )
+            if delivered.read_bytes() != fixture:
+                raise RuntimeError(f"Concurrent delivery changed contents for {scenario}.")
+            print(f"PASS: {scenario} arrived unchanged at {destination_key}.", flush=True)
+
+    print(f"PASS: all {file_count} concurrent files arrived independently.", flush=True)
+
+
 def run_cli(test_name, scenarios_for_run, verify_metadata=False):
     try:
         run_delivery_test(test_name, scenarios_for_run, verify_metadata=verify_metadata)
+    except (RuntimeError, OSError, ValueError) as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def run_concurrent_cli():
+    try:
+        run_concurrent_delivery_test()
     except (RuntimeError, OSError, ValueError) as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
