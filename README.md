@@ -82,7 +82,8 @@ python3 -B -m unittest discover -s tests/file_transfer -p 'test_*.py' -v
 
 These unit tests mock AWS calls and polling delays. No AWS credentials or extra
 Python packages are required. They also run on PRs changing the test script or
-workflow. The live AWS job does not run on PR events.
+workflow. Integration Hub PRs do not run the live AWS job; authorised MP
+Environments PRs can call it after their test deployment succeeds.
 
 While the workflow is not yet on `main`, relevant pushes to the `smoke-test`
 branch also run the local checks and then the live AWS test. The `smoke-test`
@@ -90,6 +91,48 @@ GitHub environment must explicitly allow that branch; required approvals still
 apply. Pushing this branch can therefore upload a test fixture to AWS. Pushes to
 other branches do not trigger this workflow. Manual dispatch becomes available
 once the workflow exists on the default branch.
+
+### Automatic Checks After MP Test Deployments
+
+The workflow also accepts `workflow_call` from
+`ministryofjustice/modernisation-platform-environments`. The caller supplies
+`infrastructure-sha` (the revision used by Terraform) and `harness-ref` (a full
+Integration Hub commit SHA). Both jobs explicitly check out Integration Hub,
+not the caller's infrastructure repository.
+
+The MP file-transfer workflow selects changes under
+`terraform/environments/integration-hub-file-transfer/` on PRs targeting `main`
+and pushes to `main` after merge. It calls the harness
+only after its Terraform matrix succeeds and contains a `test` target with
+`plan_apply`. A successful no-change plan is eligible; a plan-only target,
+empty matrix, failed deployment or cancelled run does not establish a pass.
+The summary records the infrastructure revision, PR head revision, harness
+revision and run link. L1-L3 failures fail the caller's test job; L4 remains
+manual and opt-in.
+
+Reusable calls use the **caller's** protected `smoke-test` GitHub environment.
+MP forwards its existing `MODERNISATION_PLATFORM_ACCOUNT_ID` and `PASSPHRASE`
+secrets. After unit tests pass, the workflow uses MP's standard secret-fetch and
+decryption actions to resolve `integration-hub-file-transfer-test` from the
+environment-management account mapping, with region fixed to `eu-west-2`.
+No MP account or region configuration variables are needed. Standalone
+Integration Hub runs still use their existing `ACCOUNT_ID` and `AWS_REGION`
+environment variables and skip MP secret fetching.
+The harness role must trust the MP environment as well as the Integration Hub
+environment. Fork PRs are not eligible for the live caller job.
+
+MP serializes its file-transfer workflow from deployment through testing so
+another run cannot replace the candidate during verification. Deployments
+outside that workflow must be coordinated separately. This adds post-deployment
+evidence, not a production-promotion gate: existing production deployment
+ordering is unchanged. Do not make the path-filtered workflow a globally
+required check without handling unrelated PRs.
+
+Publish this reusable-workflow change before enabling the MP caller. The MP
+caller initially references `smoke-test` for rollout; replace that workflow
+reference with the published full commit SHA before merging the MP change.
+The scripts are independently pinned through `harness-ref`; update that SHA
+deliberately when adopting new test coverage.
 
 ### Run Against the Test Account
 
@@ -192,6 +235,6 @@ checks and live negative cases are not included. L3 currently checks concurrent
 delivery of independent files only; retries, DLQ/replay, tenant isolation, and
 alerting are not yet covered. API, SFTP/FTPS or browser uploads,
 malicious-file rejection, and completion notifications are also not covered.
-External notifications and automatic post-deployment triggering remain
-follow-up work. Live delivery must be verified separately from these local
-unit checks.
+External notifications remain follow-up work. Automatic post-deployment checks
+require the MP caller and protected environment setup described above. Live
+delivery must be verified separately from these local unit checks.

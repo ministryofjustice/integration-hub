@@ -2,6 +2,23 @@
 name: File Transfer Tests
 
 on:
+  workflow_call:
+    inputs:
+      infrastructure-sha:
+        description: "MP Environments revision processed by the test deployment"
+        required: true
+        type: string
+      harness-ref:
+        description: "Full Integration Hub commit SHA containing the test scripts"
+        required: true
+        type: string
+    secrets:
+      MODERNISATION_PLATFORM_ACCOUNT_ID:
+        description: "MP management account used by the existing secret-fetch workflow"
+        required: false
+      PASSPHRASE:
+        description: "Passphrase for MP environment-management configuration"
+        required: false
   workflow_dispatch:
     inputs:
       run_l4:
@@ -41,15 +58,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: ministryofjustice/integration-hub
+          ref: ${{ inputs.harness-ref || github.sha }}
           persist-credentials: false
 
       - name: Verify the harness handles success and failure correctly
         run: python3 -B -m unittest discover -s tests/file_transfer -p 'test_*.py' -v
 
-  file-transfer-tests:
-    name: Verify file delivery in the test environment
+  fetch-secrets:
     needs: unit-tests
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/smoke-test')
+    if: >-
+      github.repository == 'ministryofjustice/modernisation-platform-environments' &&
+      inputs.infrastructure-sha != '' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    permissions:
+      contents: read
+      id-token: write
+    uses: ministryofjustice/modernisation-platform-github-actions/.github/workflows/aws-secrets-management.yml@5ec14e836f3de882a84f1c0b919645846a9d4f8e # v6.2.13
+    secrets:
+      MODERNISATION_PLATFORM_ACCOUNT_NUMBER: ${{ secrets.MODERNISATION_PLATFORM_ACCOUNT_ID }}
+      PASSPHRASE: ${{ secrets.PASSPHRASE }}
+
+  integration-tests:
+    name: File Transfer Integration Tests
+    needs: [unit-tests, fetch-secrets]
+    if: >-
+      !cancelled() && !failure() &&
+      ((github.repository == 'ministryofjustice/integration-hub' &&
+       (github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/smoke-test'))) ||
+      (github.repository == 'ministryofjustice/modernisation-platform-environments' &&
+       inputs.infrastructure-sha != '' &&
+       (github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository)))
     runs-on: ubuntu-latest
     environment: smoke-test
     timeout-minutes: 30
@@ -66,34 +108,90 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: ministryofjustice/integration-hub
+          ref: ${{ inputs.harness-ref || github.sha }}
           persist-credentials: false
 
-      - name: Check the test account and region settings
+      - name: Record the infrastructure and harness revisions
         shell: bash
         env:
-          ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
+          INFRASTRUCTURE_SHA: ${{ inputs.infrastructure-sha }}
+          HARNESS_REF: ${{ inputs.harness-ref }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
+          if [[ "$CALLER_REPOSITORY" == "ministryofjustice/modernisation-platform-environments" ]]; then
+            if [[ ! "$INFRASTRUCTURE_SHA" =~ ^[0-9a-f]{40}$ ||
+                  ! "$HARNESS_REF" =~ ^[0-9a-f]{40}$ ||
+                  "$INFRASTRUCTURE_SHA" != "$GITHUB_SHA" ]]; then
+              echo "::error::The caller must supply its deployed revision and a full harness commit SHA."
+              exit 1
+            fi
+          fi
+          {
+            echo "### File-transfer test provenance"
+            echo "- Caller: $CALLER_REPOSITORY"
+            echo "- Infrastructure revision: ${INFRASTRUCTURE_SHA:-not supplied (standalone run)}"
+            echo "- PR head revision: ${PR_HEAD_SHA:-not a PR}"
+            echo "- Harness revision: $(git rev-parse HEAD)"
+            echo "- Caller workflow: $WORKFLOW_REF"
+            echo "- Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Decrypt MP environment-management configuration
+        if: github.repository == 'ministryofjustice/modernisation-platform-environments'
+        uses: ministryofjustice/modernisation-platform-github-actions/decrypt-secrets@5ec14e836f3de882a84f1c0b919645846a9d4f8e # v6.2.13
+        with:
+          environment_management: ${{ needs.fetch-secrets.outputs.environment_management }}
+          PASSPHRASE: ${{ secrets.PASSPHRASE }}
+
+      - name: Resolve and check the test account and region settings
+        shell: bash
+        env:
+          CALLER_REPOSITORY: ${{ github.repository }}
+          STANDALONE_ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
+          STANDALONE_AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          if [[ "$CALLER_REPOSITORY" == "ministryofjustice/modernisation-platform-environments" ]]; then
+            if ! ACCOUNT_ID=$(jq -er \
+              '.account_ids["integration-hub-file-transfer-test"] | select(type == "string")' \
+              <<< "$ENVIRONMENT_MANAGEMENT"); then
+              echo "::error::Unable to resolve the file-transfer test account from MP environment-management configuration."
+              exit 1
+            fi
+            AWS_REGION=eu-west-2
+          else
+            ACCOUNT_ID="$STANDALONE_ACCOUNT_ID"
+            AWS_REGION="$STANDALONE_AWS_REGION"
+          fi
           if [[ ! "$ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
-            echo "::error::Set ACCOUNT_ID to the 12-digit test account ID in the smoke-test environment."
+            echo "::error::The resolved file-transfer test account ID must contain 12 digits."
             exit 1
           fi
           if [[ "$AWS_REGION" != "eu-west-2" ]]; then
-            echo "::error::Set AWS_REGION to eu-west-2 in the smoke-test environment."
+            echo "::error::The file-transfer test region must be eu-west-2."
             exit 1
           fi
+          echo "::add-mask::$ACCOUNT_ID"
+          {
+            echo "ACCOUNT_ID=$ACCOUNT_ID"
+            echo "AWS_REGION=$AWS_REGION"
+          } >> "$GITHUB_ENV"
 
       - name: Connect to AWS using the dedicated test role
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
-          role-to-assume: arn:aws:iam::${{ vars.ACCOUNT_ID }}:role/integration-hub-file-transfer-test-harness-test
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/integration-hub-file-transfer-test-harness-test
+          aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
 
       - name: Confirm access to the expected test account
         shell: bash
         env:
-          EXPECTED_ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
+          EXPECTED_ACCOUNT_ID: ${{ env.ACCOUNT_ID }}
         run: |
           identity_arn=$(aws sts get-caller-identity --query Arn --output text)
           expected_prefix="arn:aws:sts::${EXPECTED_ACCOUNT_ID}:assumed-role/integration-hub-file-transfer-test-harness-test/"
