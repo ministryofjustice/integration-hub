@@ -114,7 +114,9 @@ route, matching the MP Terraform configuration. Both use shared AWS, polling,
 and verification code from [harness.py](tests/file_transfer/harness.py); its
 mocked unit tests are in [test_harness.py](tests/file_transfer/test_harness.py).
 The [L3 resilience test](tests/file_transfer/resilience_test.py) exercises
-three independent uploads at the same time.
+three independent uploads at the same time, then invokes the test writer twice
+with the same action request and verifies the duplicate does not create another
+destination version. This checks writer idempotency, not SQS redelivery.
 
 | Setting | Value |
 | --- | --- |

@@ -3,6 +3,11 @@ from harness import run_cli
 
 
 def smoke_scenarios(run_token):
+    """Create one small text file to check that the basic delivery route works.
+
+    Each scenario contains a description, filename, and expected file contents.
+    The run ID makes the contents specific to this test run.
+    """
     return [
         (
             "small text",

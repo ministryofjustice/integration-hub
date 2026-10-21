@@ -165,33 +165,33 @@ jobs:
             echo "Scope: integrity, metadata, and KMS encryption checks for the direct-to-S3 route; this is not the complete L2 route and negative-case matrix."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: L3 resilience - verify concurrent file delivery
-        id: l3_concurrency
+      - name: L3 resilience - verify concurrency and duplicate handling
+        id: l3_resilience
         run: python3 -B tests/file_transfer/resilience_test.py
 
       - name: Report L3 concurrency result
         if: always()
         shell: bash
         env:
-          TEST_OUTCOME: ${{ steps.l3_concurrency.outcome }}
+          TEST_OUTCOME: ${{ steps.l3_resilience.outcome }}
         run: |
           {
-            echo "### L3 resilience: concurrent file delivery"
-            echo "Test environment only. Uses three unique synthetic files."
+            echo "### L3 resilience: concurrency and duplicate handling"
+            echo "Test environment only. Uses synthetic files and the test push-to-s3 writer."
             echo ""
             case "$TEST_OUTCOME" in
               success)
-                echo "**PASS: all three concurrently uploaded files arrived at their exact destinations unchanged.**"
+                echo "**PASS: concurrent files arrived unchanged, and repeating the same action request created no second destination version.**"
                 ;;
               failure)
-                echo "**FAIL: concurrent file delivery could not be verified.**"
+                echo "**FAIL: an L3 resilience check could not be verified.**"
                 echo "Check the error and test run ID in the L3 step logs."
                 ;;
               *)
-                echo "**NOT COMPLETED: L3 concurrency check did not record a pass.**"
+                echo "**NOT COMPLETED: L3 resilience checks did not record a pass.**"
                 echo "Check earlier steps, environment approvals, or cancellation."
                 ;;
             esac
             echo ""
-            echo "Scope: concurrent delivery of independent files only; no retry, DLQ/replay, or tenant-isolation test is included."
+            echo "Scope: concurrent delivery and duplicate action idempotency only; SQS retry, DLQ/replay, tenant isolation, and alerting are not included."
           } >> "$GITHUB_STEP_SUMMARY"

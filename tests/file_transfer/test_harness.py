@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 import harness
 from functional_test import functional_scenarios
+import resilience_test
+from resilience_test import build_duplicate_action_request
 from smoke_test import smoke_scenarios
 
 
@@ -37,6 +39,11 @@ class HarnessTests(unittest.TestCase):
         self.addCleanup(sleep_patch.stop)
 
     def fake_concurrent_aws(self, operation, *arguments, timeout=30):
+        """Simulate S3 for overlapping uploads, keeping each file's bytes separately.
+
+        The barrier waits for all uploads to start. A serial implementation would
+        time out here. The lock protects shared test data while workers update it.
+        """
         self.assertGreater(timeout, 0)
         bucket = arguments[arguments.index("--bucket") + 1]
         if operation == "put-object":
@@ -70,7 +77,84 @@ class HarnessTests(unittest.TestCase):
         self.fail(f"Unexpected AWS operation: {operation}")
 
     def advance_time(self, seconds):
+        """Move the simulated clock forward so timeout tests need no real waiting."""
         self.elapsed += seconds
+
+    def test_duplicate_action_request_has_stable_idempotency_key(self):
+        """Check that the request's duplicate-detection key uses its action ID.
+
+        Also verify that the source file and configuration version are included.
+        This builds a request locally; it does not call the deployed writer.
+        """
+        source_object = {
+            "bucket": harness.CLEAN_BUCKET,
+            "key": "test-harness/push-to-s3/run/file.bin",
+            "versionId": "source-version",
+            "sizeBytes": 12,
+        }
+        request = build_duplicate_action_request(
+            "123456789012",
+            source_object,
+            "arn:aws:secretsmanager:eu-west-2:123456789012:secret:test-abcdef",
+            "secret-version",
+        )
+        data = request["detail"]["data"]
+        action_id = data["actionExecutionId"]
+
+        self.assertEqual(data["object"], source_object)
+        self.assertEqual(data["action"], {"name": "push-to-s3"})
+        self.assertEqual(
+            request["detail"]["metadata"]["idempotencyKey"],
+            f"action-request:{action_id}",
+        )
+        self.assertEqual(data["configurationReference"]["secretVersionId"], "secret-version")
+
+    def test_l3_duplicate_action_sends_identical_request_twice(self):
+        """Check the L3 test reuses one request and accepts a copy followed by no copy.
+
+        AWS calls are replaced with local fakes. The simulated versions are A,
+        then B, then B again. This checks the test logic, not live AWS behaviour.
+        """
+        source_object = {
+            "bucket": harness.CLEAN_BUCKET,
+            "key": "test-harness/push-to-s3/run/duplicate-idempotency-seed.bin",
+            "versionId": "source-version",
+            "sizeBytes": 12,
+        }
+        secret = {
+            "ARN": "arn:aws:secretsmanager:eu-west-2:123456789012:secret:dispatch-AbCdE1",
+            "VersionIdsToStages": {"secret-version": ["AWSCURRENT"]},
+        }
+        invocations = []
+        with (
+            patch.object(resilience_test, "run_delivery_test") as seed,
+            patch.object(
+                resilience_test,
+                "_current_clean_version",
+                return_value=source_object,
+            ),
+            patch.object(resilience_test, "aws_cli", side_effect=[secret, {"Account": "123456789012"}]),
+            patch.object(
+                resilience_test,
+                "_head_destination_version",
+                side_effect=["seed-version", "copied-version", "copied-version"],
+            ),
+            patch.object(
+                resilience_test,
+                "_invoke_writer",
+                side_effect=lambda event, queue_arn, response_path: invocations.append(event),
+            ),
+        ):
+            with redirect_stdout(io.StringIO()):
+                resilience_test.run_duplicate_action_test(timeout_seconds=10)
+
+        seed.assert_called_once()
+        self.assertEqual(len(invocations), 2)
+        self.assertEqual(invocations[0], invocations[1])
+        self.assertEqual(
+            invocations[0]["detail"]["metadata"]["idempotencyKey"],
+            f"action-request:{invocations[0]['detail']['data']['actionExecutionId']}",
+        )
 
     def fake_aws(self, operation, *arguments, timeout=30):
         """Simulate upload, exact-key listing, download, and HeadObject."""
@@ -121,6 +205,11 @@ class HarnessTests(unittest.TestCase):
         self.fail(f"Unexpected AWS operation: {operation}")
 
     def test_l1_checks_one_small_file_and_compares_contents(self):
+        """Check L1 uploads and verifies one file, ignores similar keys, and cleans up.
+
+        The fake first returns a filename ending in .old; the runner must keep
+        waiting for the exact file instead of reporting an early success.
+        """
         output = io.StringIO()
         with redirect_stdout(output):
             harness.run_delivery_test(
@@ -138,6 +227,11 @@ class HarnessTests(unittest.TestCase):
         self.assertNotIn("zero-byte file", messages)
 
     def test_l2_checks_integrity_metadata_and_encryption(self):
+        """Check L2 runs all four fixtures and requests the extra object checks.
+
+        The fake preserves bytes and metadata and reports KMS encryption, so the
+        runner should pass and remove its temporary local files.
+        """
         output = io.StringIO()
         with redirect_stdout(output):
             harness.run_delivery_test(
@@ -172,6 +266,11 @@ class HarnessTests(unittest.TestCase):
         self.assertIn("special chars + (1).txt", messages)
 
     def test_l3_uploads_and_verifies_concurrent_files_independently(self):
+        """Check three uploads overlap and all three distinct files are downloaded.
+
+        The simulated S3 service waits for all upload workers to reach the barrier
+        and returns the bytes saved for each file's own key.
+        """
         self.upload_barrier = threading.Barrier(3)
         self.concurrent_lock = threading.Lock()
         self.uploaded_by_key = {}
@@ -189,6 +288,7 @@ class HarnessTests(unittest.TestCase):
         self.assertIn("PASS: all 3 concurrent files arrived independently.", output.getvalue())
 
     def test_missing_delivery_times_out_without_download(self):
+        """Check a file that never arrives causes a timeout, not a false pass."""
         self.never_deliver = True
         with self.assertRaisesRegex(TimeoutError, "Timed out"):
             harness.run_delivery_test(
@@ -199,6 +299,7 @@ class HarnessTests(unittest.TestCase):
         self.assertTrue(all(not path.exists() for path in self.local_paths))
 
     def test_content_mismatch_fails(self):
+        """Check that finding the file is not enough: changed contents must fail."""
         self.corrupt_delivery = True
         with redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, "do not match"):
@@ -207,12 +308,14 @@ class HarnessTests(unittest.TestCase):
                 )
 
     def test_aws_errors_fail_immediately(self):
+        """Check an AWS error stops the test immediately instead of polling forever."""
         self.aws.side_effect = RuntimeError("AWS access denied")
         with self.assertRaisesRegex(RuntimeError, "access denied"):
             harness.run_delivery_test("L1 smoke checks", smoke_scenarios)
         self.assertEqual(self.aws.call_count, 1)
 
     def test_each_run_uses_a_new_key(self):
+        """Check separate runs use different paths and contents to avoid stale passes."""
         harness.run_delivery_test("L1 smoke checks", smoke_scenarios)
         first_key = self.incoming_key
         first_fixture = self.uploaded
@@ -221,6 +324,7 @@ class HarnessTests(unittest.TestCase):
         self.assertNotEqual(first_fixture, self.uploaded)
 
     def test_invalid_timeouts_make_no_aws_calls(self):
+        """Check invalid time limits are rejected before any AWS operation is attempted."""
         for timeout, interval in [(0, 1), (1, 0), (-1, 1)]:
             with self.subTest(timeout=timeout, interval=interval):
                 with self.assertRaises(ValueError):
@@ -236,6 +340,7 @@ class HarnessTests(unittest.TestCase):
 class AwsCommandTests(unittest.TestCase):
     @patch("harness.subprocess.run")
     def test_command_uses_json_region_and_timeout(self, run):
+        """Inspect the built AWS command without running it; check output and time limits."""
         run.return_value.stdout = '{"Contents": []}'
         self.assertEqual(harness.aws_s3("list-objects-v2", timeout=4), {"Contents": []})
         command = run.call_args.args[0]
@@ -246,6 +351,10 @@ class AwsCommandTests(unittest.TestCase):
 
     @patch("harness.subprocess.run")
     def test_failed_commands_are_not_treated_as_missing_objects(self, run):
+        """Check CLI errors, timeouts, and a missing AWS executable all fail clearly.
+
+        These problems must not look like a successful search that found no file.
+        """
         for error in [
             subprocess.CalledProcessError(1, "aws", stderr="sensitive details"),
             subprocess.TimeoutExpired("aws", 4),

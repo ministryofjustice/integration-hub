@@ -9,22 +9,23 @@ from pathlib import Path
 
 
 INCOMING_BUCKET = "integration-hub-file-transfer-test-incoming"
+CLEAN_BUCKET = "integration-hub-file-transfer-test-clean"
 DESTINATION_BUCKET = "integration-hub-file-transfer-test-test-harness"
 INCOMING_PREFIX = "test-harness/push-to-s3/"
 DESTINATION_PREFIX = "push-to-s3/"
 REGION = "eu-west-2"
 
 
-def aws_s3(operation, *arguments, timeout=30):
-    """Run an S3 API command with a time limit and return its parsed JSON response.
+def aws_cli(service, operation, *arguments, timeout=30):
+    """Run an AWS CLI command with a time limit and return parsed JSON output.
 
-    Use the AWS CLI's current credentials. Report command failures without
-    including potentially sensitive CLI output in the error message.
+    Use the AWS CLI's current credentials and avoid exposing command output in
+    error messages.
     """
     try:
         result = subprocess.run(
             [
-                "aws", "s3api", operation, *arguments,
+                "aws", service, operation, *arguments,
                 "--region", REGION,
                 "--output", "json",
                 "--no-cli-pager",
@@ -41,13 +42,24 @@ def aws_s3(operation, *arguments, timeout=30):
     return json.loads(result.stdout)
 
 
+def aws_s3(operation, *arguments, timeout=30):
+    """Run an S3 command through the shared AWS command/error handling helper."""
+    return aws_cli("s3api", operation, *arguments, timeout=timeout)
+
+
 def run_delivery_test(test_name, scenarios_for_run, verify_metadata=False,
-                      timeout_seconds=300, poll_seconds=5):
-    """Upload fixtures and verify exact-key delivery within one time limit."""
+                      timeout_seconds=300, poll_seconds=5, run_token=None):
+    """Upload test files one at a time and check each arrives without changes.
+
+    scenarios_for_run supplies the filenames and expected bytes. When requested,
+    also check the content type, run-ID metadata, and presence of KMS encryption.
+    Return the run ID so another check can find the same files later.
+    """
     if timeout_seconds <= 0 or poll_seconds <= 0:
         raise ValueError("Timeout and polling interval must be positive.")
 
-    run_token = uuid.uuid4().hex
+    # A unique S3 path prevents an older run's files from satisfying this test.
+    run_token = run_token or uuid.uuid4().hex
     scenarios = scenarios_for_run(run_token)
     print(f"File-transfer test: {test_name}.", flush=True)
     print("Environment: test | Route: direct upload to S3", flush=True)
@@ -92,6 +104,7 @@ def run_delivery_test(test_name, scenarios_for_run, verify_metadata=False,
                     "list-objects-v2", "--bucket", DESTINATION_BUCKET,
                     "--prefix", destination_key, timeout=min(30, remaining),
                 )
+                # S3 prefix searches can include similar names; only the exact key counts.
                 if any(item["Key"] == destination_key for item in listing.get("Contents", [])):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -129,10 +142,15 @@ def run_delivery_test(test_name, scenarios_for_run, verify_metadata=False,
                     time.sleep(min(poll_seconds, remaining))
 
     print(f"PASS: all {len(scenarios)} file-transfer scenarios completed.", flush=True)
+    return run_token
 
 
 def run_concurrent_delivery_test(file_count=3, timeout_seconds=300, poll_seconds=5):
-    """Upload independent fixtures concurrently and verify each exact delivery."""
+    """Upload several different files at once and check each arrives unchanged.
+
+    Every file has its own expected contents and destination path, so a missing
+    file or contents mixed up between files makes the test fail.
+    """
     if file_count < 2:
         raise ValueError("Concurrent delivery needs at least two files.")
     if timeout_seconds <= 0 or poll_seconds <= 0:
@@ -165,6 +183,7 @@ def run_concurrent_delivery_test(file_count=3, timeout_seconds=300, poll_seconds
             expected[destination_key] = (scenario, fixture, Path(directory) / f"delivered-{index}")
             uploads.append((scenario, incoming_key, source))
 
+        # Separate workers allow uploads to overlap instead of waiting for each other.
         with ThreadPoolExecutor(max_workers=file_count) as executor:
             futures = []
             for scenario, incoming_key, source in uploads:
@@ -184,6 +203,7 @@ def run_concurrent_delivery_test(file_count=3, timeout_seconds=300, poll_seconds
                 )
             try:
                 for future in as_completed(futures, timeout=max(deadline - time.monotonic(), 0)):
+                    # Surface upload errors from the worker instead of ignoring them.
                     future.result()
             except TimeoutError as error:
                 raise TimeoutError("Timed out uploading concurrent fixtures.") from error
@@ -224,6 +244,10 @@ def run_concurrent_delivery_test(file_count=3, timeout_seconds=300, poll_seconds
 
 
 def run_cli(test_name, scenarios_for_run, verify_metadata=False):
+    """Run L1 or L2 from the command line; return 0 for success or 1 for failure.
+
+    The workflow uses this exit code to decide whether its test step passed.
+    """
     try:
         run_delivery_test(test_name, scenarios_for_run, verify_metadata=verify_metadata)
     except (RuntimeError, OSError, ValueError) as error:
@@ -233,6 +257,7 @@ def run_cli(test_name, scenarios_for_run, verify_metadata=False):
 
 
 def run_concurrent_cli():
+    """Run just the concurrent-delivery check with a workflow-friendly exit code."""
     try:
         run_concurrent_delivery_test()
     except (RuntimeError, OSError, ValueError) as error:
