@@ -1,4 +1,5 @@
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -30,7 +31,7 @@ def aws_cli(service, operation, *arguments, timeout=30):
                 "--output", "json",
                 "--no-cli-pager",
                 "--cli-connect-timeout", "10",
-                "--cli-read-timeout", "10",
+                "--cli-read-timeout", str(math.ceil(timeout)),
             ],
             check=True,
             capture_output=True,

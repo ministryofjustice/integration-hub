@@ -485,6 +485,19 @@ class AwsCommandTests(unittest.TestCase):
         self.assertTrue(run.call_args.kwargs["check"])
 
     @patch("harness.subprocess.run")
+    def test_socket_read_timeout_matches_operation_budget(self, run):
+        run.return_value.stdout = '{}'
+        for timeout, read_timeout in [(4, "4"), (60, "60"), (0.5, "1")]:
+            with self.subTest(timeout=timeout):
+                harness.aws_cli("lambda", "invoke", timeout=timeout)
+                command = run.call_args.args[0]
+                self.assertEqual(
+                    command[command.index("--cli-read-timeout") + 1],
+                    read_timeout,
+                )
+                self.assertEqual(run.call_args.kwargs["timeout"], timeout)
+
+    @patch("harness.subprocess.run")
     def test_failed_commands_are_not_treated_as_missing_objects(self, run):
         """Check CLI errors, timeouts, and a missing AWS executable all fail clearly.
 
