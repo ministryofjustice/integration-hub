@@ -48,12 +48,14 @@ def aws_s3(operation, *arguments, timeout=30):
 
 
 def run_delivery_test(test_name, scenarios_for_run, verify_metadata=False,
-                      timeout_seconds=300, poll_seconds=5, run_token=None):
+                      timeout_seconds=300, poll_seconds=5, run_token=None,
+                      measurements=None):
     """Upload test files one at a time and check each arrives without changes.
 
     scenarios_for_run supplies the filenames and expected bytes. When requested,
     also check the content type, run-ID metadata, and presence of KMS encryption.
     Return the run ID so another check can find the same files later.
+    If a measurements list is supplied, append timings only for verified files.
     """
     if timeout_seconds <= 0 or poll_seconds <= 0:
         raise ValueError("Timeout and polling interval must be positive.")
@@ -90,6 +92,7 @@ def run_delivery_test(test_name, scenarios_for_run, verify_metadata=False,
                     "--content-type", "application/octet-stream",
                     "--metadata", json.dumps({"file-transfer-test-run-id": run_token}),
                 ])
+            upload_started = time.monotonic()
             aws_s3(
                 "put-object", *upload_arguments,
                 timeout=min(30, remaining),
@@ -106,6 +109,7 @@ def run_delivery_test(test_name, scenarios_for_run, verify_metadata=False,
                 )
                 # S3 prefix searches can include similar names; only the exact key counts.
                 if any(item["Key"] == destination_key for item in listing.get("Contents", [])):
+                    delivery_observed = time.monotonic()
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise TimeoutError(f"Timed out before downloading {scenario}.")
@@ -135,6 +139,15 @@ def run_delivery_test(test_name, scenarios_for_run, verify_metadata=False,
                         ):
                             raise RuntimeError(f"Delivered {scenario} is not encrypted with KMS.")
                         print(f"PASS: {scenario} metadata and KMS encryption verified.", flush=True)
+                    if measurements is not None:
+                        # Observation includes upload and polling, not just service processing.
+                        measurements.append({
+                            "run_token": run_token,
+                            "filename": filename,
+                            "size_bytes": len(fixture),
+                            "observed_delivery_seconds": delivery_observed - upload_started,
+                            "verified_seconds": time.monotonic() - upload_started,
+                        })
                     print(f"PASS: {scenario} delivered unchanged ({len(fixture)} bytes).", flush=True)
                     break
                 remaining = deadline - time.monotonic()

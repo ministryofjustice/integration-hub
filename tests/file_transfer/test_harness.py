@@ -1,13 +1,15 @@
 import io
 import json
 import subprocess
+import tempfile
 import threading
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
 import harness
+import performance_test
 from functional_test import functional_scenarios
 import resilience_test
 from resilience_test import build_duplicate_action_request
@@ -307,12 +309,145 @@ class HarnessTests(unittest.TestCase):
                     "L1 smoke checks", smoke_scenarios, timeout_seconds=10, poll_seconds=1
                 )
 
+    def test_delivery_measurements_separate_observation_from_verification(self):
+        """Use a fake clock to check upload/poll timing excludes the later download."""
+        measurements = []
+
+        def timed_aws(operation, *arguments, timeout=30):
+            """Simulate upload, listing and download taking different amounts of time."""
+            self.elapsed += {"put-object": 2, "list-objects-v2": 1, "get-object": 3}[operation]
+            return self.fake_aws(operation, *arguments, timeout=timeout)
+
+        self.aws.side_effect = timed_aws
+        with redirect_stdout(io.StringIO()):
+            run_token = harness.run_delivery_test(
+                "L4 timing probe", smoke_scenarios, timeout_seconds=20,
+                poll_seconds=1, measurements=measurements,
+            )
+        self.assertEqual(measurements, [{
+            "run_token": run_token,
+            "filename": "payload.txt",
+            "size_bytes": len(self.uploaded),
+            "observed_delivery_seconds": 5,
+            "verified_seconds": 8,
+        }])
+
+    def test_failed_delivery_does_not_record_a_verified_measurement(self):
+        """Do not report missing or corrupted files as successful timing samples."""
+        for failure in ("never_deliver", "corrupt_delivery"):
+            with self.subTest(failure=failure):
+                self.never_deliver = failure == "never_deliver"
+                self.corrupt_delivery = failure == "corrupt_delivery"
+                measurements = []
+                with redirect_stdout(io.StringIO()):
+                    with self.assertRaises((TimeoutError, RuntimeError)):
+                        harness.run_delivery_test(
+                            "L4 timing probe", smoke_scenarios, timeout_seconds=2,
+                            poll_seconds=1, measurements=measurements,
+                        )
+                self.assertEqual(measurements, [])
+
     def test_aws_errors_fail_immediately(self):
         """Check an AWS error stops the test immediately instead of polling forever."""
         self.aws.side_effect = RuntimeError("AWS access denied")
         with self.assertRaisesRegex(RuntimeError, "access denied"):
             harness.run_delivery_test("L1 smoke checks", smoke_scenarios)
         self.assertEqual(self.aws.call_count, 1)
+
+    def test_l4_records_size_grouped_baselines(self):
+        """Run all L4 fixtures against fake S3 and verify exact sizes and timing maths."""
+        with redirect_stdout(io.StringIO()):
+            report = performance_test.run_performance_test()
+        self.assertEqual(report["status"], "completed")
+        self.assertEqual(report["expected_bytes"], 19 * performance_test.MIB)
+        self.assertEqual(
+            [sample["size_bytes"] for sample in report["measurements"]],
+            [size * performance_test.MIB for size in (1, 1, 1, 16)],
+        )
+        self.assertEqual(len({sample["filename"] for sample in report["measurements"]}), 4)
+        self.assertTrue(all(sample["run_token"] == report["run_token"] for sample in report["measurements"]))
+        small, large = report["baselines"]
+        self.assertEqual(small["sample_count"], 3)
+        self.assertEqual(small["median_observed_delivery_seconds"], 2)
+        self.assertEqual(small["effective_mib_per_second"], 0.5)
+        self.assertEqual(large["sample_count"], 1)
+        self.assertEqual(large["effective_mib_per_second"], 8)
+        self.assertTrue(all(not path.exists() for path in self.local_paths))
+
+    def test_l4_failure_writes_partial_report_and_returns_failure(self):
+        """A corrupted second file must fail, retaining only the first verified sample."""
+        def fake_partial_delivery(operation, *arguments, timeout=30):
+            """Switch corruption on when the second upload starts."""
+            if operation == "put-object":
+                self.corrupt_delivery = self.calls.count("put-object") >= 1
+            return self.fake_aws(operation, *arguments, timeout=timeout)
+
+        self.aws.side_effect = fake_partial_delivery
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = Path(directory) / "l4.json"
+            summary_path = Path(directory) / "summary.md"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                result = performance_test.run_l4_cli([
+                    "--report", str(report_path), "--summary", str(summary_path),
+                ])
+            report = json.loads(report_path.read_text())
+            self.assertEqual(result, 1)
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(len(report["measurements"]), 1)
+            self.assertIn("do not match", report["error"])
+            self.assertIn("**failed**", summary_path.read_text())
+            self.assertIn("1/4", summary_path.read_text())
+
+    def test_l4_cli_writes_completed_report(self):
+        """A successful run writes machine-readable evidence and a readable summary."""
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = Path(directory) / "l4.json"
+            with redirect_stdout(io.StringIO()) as output:
+                result = performance_test.run_l4_cli(["--report", str(report_path)])
+            self.assertEqual(result, 0)
+            self.assertEqual(json.loads(report_path.read_text())["status"], "completed")
+            self.assertIn("Performance numbers are informational", output.getvalue())
+
+    def test_l4_summary_handles_empty_or_zero_duration_samples(self):
+        """Do not invent rates when there are no verified files or no elapsed time."""
+        self.assertEqual(performance_test.summarise_measurements([]), [])
+        baselines = performance_test.summarise_measurements([{
+            "size_bytes": performance_test.MIB,
+            "observed_delivery_seconds": 0,
+            "verified_seconds": 0,
+        }])
+        self.assertIsNone(baselines[0]["effective_mib_per_second"])
+
+    def test_l4_rate_uses_total_bytes_and_time_not_average_individual_rates(self):
+        """Different sample durations must be weighted by elapsed time when reporting rate."""
+        measurements = [
+            {
+                "size_bytes": performance_test.MIB,
+                "observed_delivery_seconds": observed,
+                "verified_seconds": verified,
+            }
+            for observed, verified in [(1, 2), (3, 6), (2, 4)]
+        ]
+        baseline = performance_test.summarise_measurements(measurements)[0]
+        self.assertEqual(baseline["min_observed_delivery_seconds"], 1)
+        self.assertEqual(baseline["median_observed_delivery_seconds"], 2)
+        self.assertEqual(baseline["max_observed_delivery_seconds"], 3)
+        self.assertEqual(baseline["effective_mib_per_second"], 3 / 12)
+
+    def test_l4_timeout_writes_failed_report_without_successful_samples(self):
+        """An informational baseline must still report a missing delivery as a failure."""
+        self.never_deliver = True
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = Path(directory) / "l4.json"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                result = performance_test.run_l4_cli(["--report", str(report_path)])
+            report = json.loads(report_path.read_text())
+            self.assertEqual(result, 1)
+            self.assertEqual(self.elapsed, performance_test.TIMEOUT_SECONDS)
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["measurements"], [])
+            self.assertEqual(report["baselines"], [])
+            self.assertIn("Timed out", report["error"])
 
     def test_each_run_uses_a_new_key(self):
         """Check separate runs use different paths and contents to avoid stale passes."""

@@ -3,6 +3,12 @@ name: File Transfer Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      run_l4:
+        description: "Run the informational L4 baseline (19 MiB of synthetic uploads)"
+        type: boolean
+        required: false
+        default: false
   push:
     branches:
       - smoke-test
@@ -46,7 +52,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/smoke-test')
     runs-on: ubuntu-latest
     environment: smoke-test
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -195,3 +201,32 @@ jobs:
             echo ""
             echo "Scope: concurrent delivery and duplicate action idempotency only; SQS retry, DLQ/replay, tenant isolation, and alerting are not included."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: L4 non-functional - measure bounded delivery baselines
+        id: l4_performance
+        if: github.event_name == 'workflow_dispatch' && inputs.run_l4
+        run: >-
+          python3 -B tests/file_transfer/performance_test.py
+          --report "$RUNNER_TEMP/file-transfer-l4.json"
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Report incomplete L4 execution
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.run_l4
+        shell: bash
+        run: |
+          if [[ ! -f "$RUNNER_TEMP/file-transfer-l4.json" ]]; then
+            {
+              echo "### L4 non-functional baseline"
+              echo "**NOT COMPLETED: no L4 report was produced.**"
+              echo "Check earlier steps, cancellation, or errors writing the report."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Preserve L4 measurements
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.run_l4 && steps.l4_performance.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: file-transfer-l4-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/file-transfer-l4.json
+          retention-days: 30
+          if-no-files-found: warn

@@ -118,6 +118,49 @@ three independent uploads at the same time, then invokes the test writer twice
 with the same action request and verifies the duplicate does not create another
 destination version. This checks writer idempotency, not SQS redelivery.
 
+### L4 Non-functional Baseline
+
+The [L4 performance test](tests/file_transfer/performance_test.py) measures the
+same `push-to-s3` route using the shared delivery runner. It uploads three 1 MiB
+files and one 16 MiB file sequentially: 19 MiB of synthetic source data in total.
+Every delivered file must match its original bytes. It uses the existing S3
+permissions; no additional MP permissions are needed for L4.
+
+To opt in, select **Run workflow** and enable **Run the informational L4 baseline**.
+L4 runs after L1-L3 succeed, using the same protected test environment and role.
+It does not run on pushes, PR events, or a schedule. The workflow keeps its JSON
+report as an artifact for 30 days and adds a table to the run summary.
+
+For an authorised local session using the dedicated test role:
+
+```sh
+python3 -B tests/file_transfer/performance_test.py --report /tmp/file-transfer-l4.json
+```
+
+The report contains per-file timings, run ID, timestamps, sizes, polling settings,
+and minimum/median/maximum observed delivery times grouped by file size:
+
+- **Observed delivery:** upload start to the first listing that finds the exact
+  destination key. This includes upload time, CLI overhead and polling delay
+  (two-second intervals), not just server-side processing time.
+- **Verified time:** upload start through download and byte comparison.
+- **Effective MiB/s:** verified payload MiB divided by the sum of verified times
+  for that file size. This is a sequential harness rate, not peak service throughput.
+
+Measurements are informational until targets are agreed. AWS errors, content
+mismatches and the ten-minute safety timeout still fail execution. A failed run
+retains already-verified samples, marked as a partial result rather than a complete
+baseline. Compare repeated runs under similar conditions; three small samples and
+one larger sample do not establish reliable tail latency or a performance guarantee.
+
+This is the first bounded L4 baseline, not the complete non-functional suite.
+The 16 MiB file is larger than L2's fixtures but does not exercise the writer's
+multipart-copy path. Sustained/concurrent load, multi-GB files, capacity limits and
+performance regression thresholds remain follow-up work. Live measurements have
+not yet been collected. Use only synthetic data and do not commit local reports.
+
+### Route and Verification Details
+
 | Setting | Value |
 | --- | --- |
 | Incoming bucket | `integration-hub-file-transfer-test-incoming` |
