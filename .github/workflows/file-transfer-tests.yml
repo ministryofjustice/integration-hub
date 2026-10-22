@@ -1,0 +1,330 @@
+---
+name: File Transfer Tests
+
+on:
+  workflow_call:
+    inputs:
+      infrastructure-sha:
+        description: "MP Environments revision processed by the test deployment"
+        required: true
+        type: string
+      harness-ref:
+        description: "Full Integration Hub commit SHA containing the test scripts"
+        required: true
+        type: string
+    secrets:
+      MODERNISATION_PLATFORM_ACCOUNT_ID:
+        description: "MP management account used by the existing secret-fetch workflow"
+        required: false
+      PASSPHRASE:
+        description: "Passphrase for MP environment-management configuration"
+        required: false
+  workflow_dispatch:
+    inputs:
+      run_l4:
+        description: "Run the informational L4 baseline (19 MiB of synthetic uploads)"
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches:
+      - smoke-test
+    paths:
+      - "tests/file_transfer/**"
+      - ".github/workflows/file-transfer-tests.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "tests/file_transfer/**"
+      - ".github/workflows/file-transfer-tests.yml"
+
+permissions: {}
+
+jobs:
+  unit-tests:
+    name: Check the test harness itself (no AWS access)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        if: github.event.repository.private == false
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ministryofjustice/integration-hub
+          ref: ${{ inputs.harness-ref || github.sha }}
+          persist-credentials: false
+
+      - name: Verify the harness handles success and failure correctly
+        run: python3 -B -m unittest discover -s tests/file_transfer -p 'test_*.py' -v
+
+  fetch-secrets:
+    needs: unit-tests
+    if: >-
+      github.repository == 'ministryofjustice/modernisation-platform-environments' &&
+      inputs.infrastructure-sha != '' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    permissions:
+      contents: read
+      id-token: write
+    uses: ministryofjustice/modernisation-platform-github-actions/.github/workflows/aws-secrets-management.yml@5ec14e836f3de882a84f1c0b919645846a9d4f8e # v6.2.13
+    secrets:
+      MODERNISATION_PLATFORM_ACCOUNT_NUMBER: ${{ secrets.MODERNISATION_PLATFORM_ACCOUNT_ID }}
+      PASSPHRASE: ${{ secrets.PASSPHRASE }}
+
+  integration-tests:
+    name: File Transfer Integration Tests
+    needs: [unit-tests, fetch-secrets]
+    if: >-
+      !cancelled() && !failure() &&
+      ((github.repository == 'ministryofjustice/integration-hub' &&
+       (github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/smoke-test'))) ||
+      (github.repository == 'ministryofjustice/modernisation-platform-environments' &&
+       inputs.infrastructure-sha != '' &&
+       (github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository)))
+    runs-on: ubuntu-latest
+    environment: smoke-test
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Harden Runner
+        if: github.event.repository.private == false
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ministryofjustice/integration-hub
+          ref: ${{ inputs.harness-ref || github.sha }}
+          persist-credentials: false
+
+      - name: Record the infrastructure and harness revisions
+        shell: bash
+        env:
+          INFRASTRUCTURE_SHA: ${{ inputs.infrastructure-sha }}
+          HARNESS_REF: ${{ inputs.harness-ref }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$CALLER_REPOSITORY" == "ministryofjustice/modernisation-platform-environments" ]]; then
+            if [[ ! "$INFRASTRUCTURE_SHA" =~ ^[0-9a-f]{40}$ ||
+                  ! "$HARNESS_REF" =~ ^[0-9a-f]{40}$ ||
+                  "$INFRASTRUCTURE_SHA" != "$GITHUB_SHA" ]]; then
+              echo "::error::The caller must supply its deployed revision and a full harness commit SHA."
+              exit 1
+            fi
+          fi
+          {
+            echo "### File-transfer test provenance"
+            echo "- Caller: $CALLER_REPOSITORY"
+            echo "- Infrastructure revision: ${INFRASTRUCTURE_SHA:-not supplied (standalone run)}"
+            echo "- PR head revision: ${PR_HEAD_SHA:-not a PR}"
+            echo "- Harness revision: $(git rev-parse HEAD)"
+            echo "- Caller workflow: $WORKFLOW_REF"
+            echo "- Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Decrypt MP environment-management configuration
+        if: github.repository == 'ministryofjustice/modernisation-platform-environments'
+        uses: ministryofjustice/modernisation-platform-github-actions/decrypt-secrets@5ec14e836f3de882a84f1c0b919645846a9d4f8e # v6.2.13
+        with:
+          environment_management: ${{ needs.fetch-secrets.outputs.environment_management }}
+          PASSPHRASE: ${{ secrets.PASSPHRASE }}
+
+      - name: Resolve and check the test account and region settings
+        shell: bash
+        env:
+          CALLER_REPOSITORY: ${{ github.repository }}
+          STANDALONE_ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
+          STANDALONE_AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          if [[ "$CALLER_REPOSITORY" == "ministryofjustice/modernisation-platform-environments" ]]; then
+            if ! ACCOUNT_ID=$(jq -er \
+              '.account_ids["integration-hub-file-transfer-test"] | select(type == "string")' \
+              <<< "$ENVIRONMENT_MANAGEMENT"); then
+              echo "::error::Unable to resolve the file-transfer test account from MP environment-management configuration."
+              exit 1
+            fi
+            AWS_REGION=eu-west-2
+          else
+            ACCOUNT_ID="$STANDALONE_ACCOUNT_ID"
+            AWS_REGION="$STANDALONE_AWS_REGION"
+          fi
+          if [[ ! "$ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
+            echo "::error::The resolved file-transfer test account ID must contain 12 digits."
+            exit 1
+          fi
+          if [[ "$AWS_REGION" != "eu-west-2" ]]; then
+            echo "::error::The file-transfer test region must be eu-west-2."
+            exit 1
+          fi
+          echo "::add-mask::$ACCOUNT_ID"
+          {
+            echo "ACCOUNT_ID=$ACCOUNT_ID"
+            echo "AWS_REGION=$AWS_REGION"
+          } >> "$GITHUB_ENV"
+
+      - name: Connect to AWS using the dedicated test role
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/integration-hub-file-transfer-test-harness-test
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Confirm access to the expected test account
+        shell: bash
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ env.ACCOUNT_ID }}
+        run: |
+          identity_arn=$(aws sts get-caller-identity --query Arn --output text)
+          expected_prefix="arn:aws:sts::${EXPECTED_ACCOUNT_ID}:assumed-role/integration-hub-file-transfer-test-harness-test/"
+          if [[ "$identity_arn" != "$expected_prefix"* ]]; then
+            echo "::error::AWS identity does not match the configured test account and harness role."
+            exit 1
+          fi
+          echo "Connection verified: using the dedicated harness role in the expected test account."
+          {
+            echo "### Test environment connection"
+            echo "Connected using the dedicated test role. This confirms access, not file delivery."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: L1 smoke - verify a small file arrives unchanged
+        id: l1_smoke
+        run: python3 -B tests/file_transfer/smoke_test.py
+
+      - name: Report L1 smoke result
+        if: always()
+        shell: bash
+        env:
+          TEST_OUTCOME: ${{ steps.l1_smoke.outcome }}
+        run: |
+          {
+            echo "### L1 smoke: direct upload to S3"
+            echo "Test environment only. Uses a unique synthetic text file."
+            echo ""
+            case "$TEST_OUTCOME" in
+              success)
+                echo "**PASS: the small text file arrived at the expected destination unchanged.**"
+                echo "Verified: upload, exact-key arrival, download, and byte-for-byte comparison."
+                ;;
+              failure)
+                echo "**FAIL: L1 file delivery could not be verified.**"
+                echo "Check the error and test run ID in the L1 step logs."
+                ;;
+              *)
+                echo "**NOT COMPLETED: L1 did not record a pass.**"
+                echo "Check earlier steps, environment approvals, or cancellation."
+                ;;
+            esac
+            echo ""
+            echo "Scope: one happy-path file on the direct-to-S3 route."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: L2 functional - verify edge-case delivery
+        id: l2_functional
+        run: python3 -B tests/file_transfer/functional_test.py
+
+      - name: Report L2 integrity result
+        if: always()
+        shell: bash
+        env:
+          TEST_OUTCOME: ${{ steps.l2_functional.outcome }}
+        run: |
+          {
+            echo "### L2 functional checks: direct upload to S3"
+            echo "Test environment only. Uses unique synthetic data."
+            echo ""
+            case "$TEST_OUTCOME" in
+              success)
+                echo "**PASS: zero-byte, binary, 2 MiB, and special-character filename fixtures passed delivery checks.**"
+                echo "Each fixture was checked at its exact destination key, downloaded and compared byte for byte; content type, user metadata, and KMS encryption were also verified."
+                ;;
+              failure)
+                echo "**FAIL: an L2 integrity fixture could not be verified.**"
+                echo "Check the last completed scenario and test run ID in the L2 step logs."
+                ;;
+              *)
+                echo "**NOT COMPLETED: L2 integrity checks did not record a pass.**"
+                echo "Check earlier steps, environment approvals, or cancellation."
+                ;;
+            esac
+            echo ""
+            echo "Scope: integrity, metadata, and KMS encryption checks for the direct-to-S3 route; this is not the complete L2 route and negative-case matrix."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: L3 resilience - verify concurrency and duplicate handling
+        id: l3_resilience
+        run: python3 -B tests/file_transfer/resilience_test.py
+
+      - name: Report L3 concurrency result
+        if: always()
+        shell: bash
+        env:
+          TEST_OUTCOME: ${{ steps.l3_resilience.outcome }}
+        run: |
+          {
+            echo "### L3 resilience: concurrency and duplicate handling"
+            echo "Test environment only. Uses synthetic files and the test push-to-s3 writer."
+            echo ""
+            case "$TEST_OUTCOME" in
+              success)
+                echo "**PASS: concurrent files arrived unchanged, and repeating the same action request created no second destination version.**"
+                ;;
+              failure)
+                echo "**FAIL: an L3 resilience check could not be verified.**"
+                echo "Check the error and test run ID in the L3 step logs."
+                ;;
+              *)
+                echo "**NOT COMPLETED: L3 resilience checks did not record a pass.**"
+                echo "Check earlier steps, environment approvals, or cancellation."
+                ;;
+            esac
+            echo ""
+            echo "Scope: concurrent delivery and duplicate action idempotency only; SQS retry, DLQ/replay, tenant isolation, and alerting are not included."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: L4 non-functional - measure bounded delivery baselines
+        id: l4_performance
+        if: github.event_name == 'workflow_dispatch' && inputs.run_l4
+        run: >-
+          python3 -B tests/file_transfer/performance_test.py
+          --report "$RUNNER_TEMP/file-transfer-l4.json"
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Report incomplete L4 execution
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.run_l4
+        shell: bash
+        run: |
+          if [[ ! -f "$RUNNER_TEMP/file-transfer-l4.json" ]]; then
+            {
+              echo "### L4 non-functional baseline"
+              echo "**NOT COMPLETED: no L4 report was produced.**"
+              echo "Check earlier steps, cancellation, or errors writing the report."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Preserve L4 measurements
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.run_l4 && steps.l4_performance.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: file-transfer-l4-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/file-transfer-l4.json
+          retention-days: 30
+          if-no-files-found: warn

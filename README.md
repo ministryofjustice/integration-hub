@@ -61,3 +61,8 @@ internet access to check external links.
 
 Review any failures in the terminal before opening a PR. HTTP responses 403 and 429 are
 accepted, matching CI, so a passing check does not guarantee that every link is accessible.
+
+## Tests
+
+File-transfer test coverage, local checks, and instructions for authorised test
+account runs are documented in the [file-transfer test guide](tests/file_transfer/README.md).
