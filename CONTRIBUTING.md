@@ -28,7 +28,7 @@ to select the appropriate `--target`.
 
 If your agent is not following the toolkit guidance, check that you
 installed it for the correct target and that the agent has loaded the
-instructions. 
+instructions.
 
 ## Update the toolkit
 
@@ -42,7 +42,7 @@ Review the changes and open a PR with the updated
 `apm.lock.yaml` and any `apm.yml` changes. Do not commit generated instructions
 or edit them locally. You can propose instruction changes in the [MoJ AI toolkit](https://github.com/ministryofjustice/ai-toolkit) repository. Update the
 [`integration-hub` folder](https://github.com/ministryofjustice/ai-toolkit/tree/main/toolkits/integration-hub/engineering),
-which contains our team instructions. 
+which contains our team instructions.
 
 ## Before opening a pull request
 
