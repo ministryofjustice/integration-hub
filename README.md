@@ -8,6 +8,10 @@ It contains the [Integration Hub user guide](https://user-guide.integration-hub.
 
 It will also serve as a landing page for the team's backlog via GitHub Projects.
 
+## Contributing
+
+Before your first contribution, follow the [contributing guide](CONTRIBUTING.md).
+
 ## Local Development
 
 The site uses the GOV.UK [tech-docs-gem](https://github.com/alphagov/tech-docs-gem).
