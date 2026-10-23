@@ -63,7 +63,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify the harness handles success and failure correctly
-        run: python3 -B -m unittest discover -s tests/file-transfer -p 'test_*.py' -v
+        run: python3 -B tests/file-transfer/test-harness.py -v
 
   fetch-secrets:
     needs: unit-tests
@@ -207,7 +207,7 @@ jobs:
 
       - name: L1 smoke - verify a small file arrives unchanged
         id: l1_smoke
-        run: python3 -B tests/file-transfer/smoke_test.py
+        run: python3 -B tests/file-transfer/smoke-test.py
 
       - name: Report L1 smoke result
         if: always()
@@ -239,7 +239,7 @@ jobs:
 
       - name: L2 functional - verify edge-case delivery
         id: l2_functional
-        run: python3 -B tests/file-transfer/functional_test.py
+        run: python3 -B tests/file-transfer/functional-test.py
 
       - name: Report L2 integrity result
         if: always()
@@ -271,7 +271,7 @@ jobs:
 
       - name: L3 resilience - verify concurrency and duplicate handling
         id: l3_resilience
-        run: python3 -B tests/file-transfer/resilience_test.py
+        run: python3 -B tests/file-transfer/resilience-test.py
 
       - name: Report L3 concurrency result
         if: always()
@@ -304,7 +304,7 @@ jobs:
         id: l4_performance
         if: github.event_name == 'workflow_dispatch' && inputs.run_l4
         run: >-
-          python3 -B tests/file-transfer/performance_test.py
+          python3 -B tests/file-transfer/performance-test.py
           --report "$RUNNER_TEMP/file-transfer-l4.json"
           --summary "$GITHUB_STEP_SUMMARY"
 

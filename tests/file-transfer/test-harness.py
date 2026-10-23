@@ -5,15 +5,18 @@ import tempfile
 import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from importlib import import_module
 from pathlib import Path
 from unittest.mock import patch
 
 import harness
-import performance_test
-from functional_test import functional_scenarios
-import resilience_test
-from resilience_test import build_duplicate_action_request
-from smoke_test import smoke_scenarios
+
+# Hyphenated script names require importlib rather than import statements.
+performance_test = import_module("performance-test")
+functional_scenarios = import_module("functional-test").functional_scenarios
+resilience_test = import_module("resilience-test")
+build_duplicate_action_request = resilience_test.build_duplicate_action_request
+smoke_scenarios = import_module("smoke-test").smoke_scenarios
 
 
 class HarnessTests(unittest.TestCase):

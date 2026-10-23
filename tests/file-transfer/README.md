@@ -5,18 +5,18 @@ direct-to-S3 `push-to-s3` route in the test account and arrive unchanged.
 
 ## Test coverage
 
-- **Local unit tests** ([test_harness.py](test_harness.py)) mock AWS and polling
+- **Local unit tests** ([test-harness.py](test-harness.py)) mock AWS and polling
   to check the shared test harness, scenarios, and failure handling. They need
   no AWS credentials.
-- **L1 smoke** ([smoke_test.py](smoke_test.py)) uploads one small text file and
+- **L1 smoke** ([smoke-test.py](smoke-test.py)) uploads one small text file and
   verifies its delivery.
-- **L2 functional** ([functional_test.py](functional_test.py)) checks delivery
+- **L2 functional** ([functional-test.py](functional-test.py)) checks delivery
   of zero-byte, binary, 2 MiB, and special-character filename fixtures. It
   verifies file contents, metadata, and KMS encryption.
-- **L3 resilience** ([resilience_test.py](resilience_test.py)) checks delivery
+- **L3 resilience** ([resilience-test.py](resilience-test.py)) checks delivery
   of concurrent files and confirms repeating the same action request does not
   create a duplicate destination version.
-- **L4 baseline** ([performance_test.py](performance_test.py)) measures
+- **L4 baseline** ([performance-test.py](performance-test.py)) measures
   sequential delivery for three 1 MiB files and one 16 MiB file. Results are
   informational; no performance threshold is enforced.
 
@@ -28,7 +28,7 @@ SQS retries, DLQ replay, or negative cases.
 From the repository root, with Python 3.9 or newer:
 
 ```sh
-python3 -B -m unittest discover -s tests/file-transfer -p 'test_*.py' -v
+python3 -B tests/file-transfer/test-harness.py -v
 ```
 
 No additional Python packages or AWS credentials are required.
@@ -69,7 +69,7 @@ You need AWS CLI v2 and Python 3.9 or newer installed.
 4. Using the access keys, you can run the baseline tests
 
 ```sh
-python3 -B tests/file-transfer/performance_test.py \
+python3 -B tests/file-transfer/performance-test.py \
   --report /tmp/file-transfer-l4.json
 ```
 
