@@ -28,7 +28,7 @@ SQS retries, DLQ replay, or negative cases.
 From the repository root, with Python 3.9 or newer:
 
 ```sh
-python3 -B -m unittest discover -s tests/file_transfer -p 'test_*.py' -v
+python3 -B -m unittest discover -s tests/file-transfer -p 'test_*.py' -v
 ```
 
 No additional Python packages or AWS credentials are required.
@@ -69,7 +69,7 @@ You need AWS CLI v2 and Python 3.9 or newer installed.
 4. Using the access keys, you can run the baseline tests
 
 ```sh
-python3 -B tests/file_transfer/performance_test.py \
+python3 -B tests/file-transfer/performance_test.py \
   --report /tmp/file-transfer-l4.json
 ```
 
