@@ -65,4 +65,4 @@ accepted, matching CI, so a passing check does not guarantee that every link is 
 ## Tests
 
 File-transfer test coverage, local checks, and instructions for authorised test
-account runs are documented in the [file-transfer test guide](tests/file_transfer/README.md).
+account runs are documented in the [file-transfer test guide](tests/file-transfer/README.md).
