@@ -8,9 +8,9 @@ It contains the [Integration Hub user guide](https://user-guide.integration-hub.
 
 It will also serve as a landing page for the team's backlog via GitHub Projects.
 
-## Contributing
+## Team setup
 
-Before your first contribution, follow the [contributing guide](CONTRIBUTING.md).
+Follow the team guide to [set up your development environment](source/ways-of-working/set-up-your-development-environment.html.md.erb).
 
 ## Local Development
 

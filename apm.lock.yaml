@@ -4,7 +4,7 @@ dependencies:
 - repo_url: ministryofjustice/ai-toolkit
   name: integration-hub-engineering
   host: github.com
-  resolved_commit: 601e944f7e9330ec18dc8ad48f89e083752b3460
+  resolved_commit: f4002210142636fb72c04a33bdf452c563769ba9
   version: 1.1.0
   virtual_path: toolkits/integration-hub/engineering
   is_virtual: true

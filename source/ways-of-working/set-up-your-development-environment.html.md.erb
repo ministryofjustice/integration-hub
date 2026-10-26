@@ -1,0 +1,81 @@
+---
+owner_slack: "#integration-hub"
+title: Set up your development environment
+weight: 1
+last_reviewed_on: 2026-10-26
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+This guide helps Integration Hub team members set up their development tools.
+
+## Before you start
+
+- Make sure you have access to the GitHub repository you'll be working on.
+- Clone the repository and open it in your preferred editor.
+- Follow its README for required tools, dependencies, and local setup.
+- Run the documented local checks to confirm your environment is ready.
+
+Requirements vary between projects. For this documentation site, follow the
+[local development instructions](https://github.com/ministryofjustice/integration-hub#local-development).
+
+## AI toolkit
+
+We use the Integration Hub AI toolkit to keep AI-assisted contributions
+consistent with our engineering standards. Follow the steps below to set it up.
+
+### 1. Install APM
+
+Follow the [APM installation guide](https://microsoft.github.io/apm/getting-started/installation/),
+then verify:
+
+```sh
+apm --version
+```
+
+### 2. Install the toolkit
+
+From a terminal at the root of the
+[Integration Hub repository](https://github.com/ministryofjustice/integration-hub),
+install the dependencies declared in `apm.yml`:
+
+```sh
+apm install --target copilot
+```
+
+The currently pinned toolkit supports GitHub Copilot only. Other agents require
+additional target support in the upstream toolkit.
+
+If your agent is not following the toolkit guidance, check that you
+installed it for the correct target and that the agent has loaded the
+instructions.
+
+### Keep the toolkit current
+
+Before starting work in this repository, and again before submitting or updating
+a pull request, run:
+
+```sh
+apm update
+```
+
+This applies whether you make the changes yourself or use an AI agent. If the
+instructions change, read the updated guidance, ensure your agent loads it, and
+check your work against it before submitting.
+
+Review and include any resulting `apm.lock.yaml` and `apm.yml` changes in your
+pull request. Do not commit generated instructions or edit them locally.
+You can propose instruction changes in the [MoJ AI toolkit](https://github.com/ministryofjustice/ai-toolkit) repository. Update the
+[`integration-hub` folder](https://github.com/ministryofjustice/ai-toolkit/tree/main/toolkits/integration-hub/engineering),
+which contains our team instructions.
+
+## Before opening a pull request
+
+- Run `apm update` and check your changes against any updated toolkit guidance.
+- Follow the toolkit guidance and review all AI-generated changes.
+- Run the relevant [documentation checks](https://github.com/ministryofjustice/integration-hub#local-development) or
+  [file-transfer tests](https://github.com/ministryofjustice/integration-hub/blob/main/tests/file-transfer/README.md). Follow the test guide's
+  access requirements before running live AWS tests.
+- Explain what changed, why, and how it was checked, including any checks not run.
+- Never include secrets or sensitive data in prompts, logs, or pull requests.
