@@ -12,7 +12,11 @@ New to the team, or setting up a fresh machine? Let's get you ready to contribut
 
 ## Before you start
 
-1. **Get access** to your project's GitHub repository.
+1. **Check your repository access:** [Integration Hub](https://github.com/ministryofjustice/integration-hub)
+   holds our documentation and backlog;
+   [Modernisation Platform Environments](https://github.com/ministryofjustice/modernisation-platform-environments)
+   holds our infrastructure code. Ask in `#integration-hub-team` if you're unsure
+   which repository or permissions you need.
 2. **Clone it and open it** in your editor.
 3. **Follow its README** to install dependencies and run the local checks.
 
@@ -24,7 +28,11 @@ For this documentation site, use the
 APM (Agent Package Manager) installs and updates our team's engineering guidance
 for GitHub Copilot.
 
-> **Copilot only for now.** Other agents need upstream toolkit support.
+<div class="govuk-inset-text">
+<strong>
+  The toolkit currently supports GitHub Copilot only.
+  </strong>
+</div>
 
 ### 1. Install APM
 
@@ -47,8 +55,11 @@ apm install --target copilot
 This installs the `apm.yml` dependencies, using locked versions where available,
 and puts the guidance in `.github/instructions/`.
 
-**Copilot not picking it up?** Check the install succeeded and your Copilot client
-has loaded the instructions.
+<div class="govuk-inset-text">
+  After installation, you should see the toolkit's instruction files in
+  <code>.github/instructions/</code>. Take a look in your editor's file tree, or run
+  <code>ls .github/instructions/</code> in your terminal.
+</div>
 
 ## Keep it up to date
 
@@ -69,17 +80,21 @@ make sure it loads it.
 | `apm.yml` and `apm.lock.yaml` | Review and commit any changes. |
 | `.github/instructions/` and `apm_modules/` | Generated files: don't edit or commit. |
 
-Suggest guidance changes in the
-[Integration Hub engineering toolkit](https://github.com/ministryofjustice/ai-toolkit/tree/main/toolkits/integration-hub/engineering),
-not the installed copy.
+You're welcome to submit a pull request to our toolkit here:
+[Integration Hub engineering toolkit](https://github.com/ministryofjustice/ai-toolkit/tree/main/toolkits/integration-hub/engineering).
 
 ## Before opening a pull request
 
-- **Refresh the toolkit** and check your work against its guidance.
+- **Refresh the toolkit.**
 - **Review all AI-generated changes.**
 - **Run the relevant checks:** [documentation checks](https://github.com/ministryofjustice/integration-hub#local-development)
   or [file-transfer tests](https://github.com/ministryofjustice/integration-hub/blob/main/tests/file-transfer/README.md).
   Follow the test guide's access requirements before running live AWS tests.
 - **Explain what changed, why and how you checked it**, including checks you didn't run.
 
-> **Keep sensitive data out** of prompts, logs and pull requests. Never include secrets.
+<div class="govuk-warning-text">
+  <span class="govuk-warning-text__icon" aria-hidden="true">!</span>
+  <span class="govuk-warning-text__text">
+    Keep sensitive data out of prompts, logs and pull requests. Never include secrets.
+  </span>
+</div>
