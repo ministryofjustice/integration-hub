@@ -1,0 +1,89 @@
+---
+owner_slack: "#integration-hub"
+title: Set up your development environment
+weight: 1
+last_reviewed_on: 2026-10-26
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+New to the team, or setting up a fresh machine? Let's get you ready to contribute.
+
+## Before you start
+
+1. **Check your repository access:** [Integration Hub](https://github.com/ministryofjustice/integration-hub)
+   holds our documentation and backlog;
+   [Modernisation Platform Environments](https://github.com/ministryofjustice/modernisation-platform-environments)
+   holds our infrastructure code. Ask in `#integration-hub-team` if you're unsure
+   which repository or permissions you need.
+2. **Clone it and open it** in your editor.
+3. **Follow its README** to install dependencies and run the local checks.
+
+For this documentation site, use the
+[local development instructions](https://github.com/ministryofjustice/integration-hub#local-development).
+
+## Set up the AI toolkit
+
+APM (Agent Package Manager) installs and updates our team's engineering guidance
+for GitHub Copilot.
+
+> The toolkit currently supports GitHub Copilot only.
+
+### 1. Install APM
+
+Follow the [APM installation guide](https://microsoft.github.io/apm/getting-started/installation/)
+then check it's available:
+
+```sh
+apm --version
+```
+
+### 2. Install the toolkit
+
+In a terminal at the root of the
+[Integration Hub repository](https://github.com/ministryofjustice/integration-hub), run:
+
+```sh
+apm install --target copilot
+```
+
+This installs the `apm.yml` dependencies, using locked versions where available,
+and puts the guidance in `.github/instructions/`.
+
+> After installation, you should see the toolkit's instruction files in
+> `.github/instructions/`. Take a look in your editor's file tree, or run
+> `ls .github/instructions/` in your terminal.
+
+## Keep it up to date
+
+From the same repository root, run this **before starting work** and **before
+opening or updating a pull request**, even without AI:
+
+```sh
+apm update
+```
+
+Review and confirm APM's update plan. This updates the toolkit, not APM itself.
+
+Read any changed guidance, check your work against it and, if using Copilot,
+make sure it loads it.
+
+| File or folder | What to do |
+| --- | --- |
+| `apm.yml` and `apm.lock.yaml` | Review and commit any changes. |
+| `.github/instructions/` and `apm_modules/` | Generated files: don't edit or commit. |
+
+You're welcome to submit a pull request to our toolkit here:
+[Integration Hub engineering toolkit](https://github.com/ministryofjustice/ai-toolkit/tree/main/toolkits/integration-hub/engineering).
+
+## Before opening a pull request
+
+- **Refresh the toolkit.**
+- **Review all AI-generated changes.**
+- **Run the relevant checks:** [documentation checks](https://github.com/ministryofjustice/integration-hub#local-development)
+  or [file-transfer tests](https://github.com/ministryofjustice/integration-hub/blob/main/tests/file-transfer/README.md).
+  Follow the test guide's access requirements before running live AWS tests.
+- **Explain what changed, why and how you checked it**, including checks you didn't run.
+
+> **Keep sensitive data out of prompts, logs and pull requests. Never include secrets.**

@@ -1,0 +1,50 @@
+lockfile_version: '1'
+apm_version: 0.34.0
+dependencies:
+- repo_url: ministryofjustice/ai-toolkit
+  name: integration-hub-engineering
+  host: github.com
+  resolved_commit: f4002210142636fb72c04a33bdf452c563769ba9
+  version: 1.1.0
+  virtual_path: toolkits/integration-hub/engineering
+  is_virtual: true
+  package_type: apm_package
+  deployed_files:
+  - .github/instructions/file-transfer-service.instructions.md
+  - .github/instructions/pull-request.instructions.md
+  - .github/instructions/terraform.instructions.md
+  deployed_file_hashes:
+    .github/instructions/file-transfer-service.instructions.md: sha256:cca424ab9673938b0e275c30ea146ffa5b2c34342cbbff055bd5ad3f9a9f2801
+    .github/instructions/pull-request.instructions.md: sha256:d611f8c9f9b403c102a94f25d9580433441f128ff5a838dcbd74e6b0c814fb1f
+    .github/instructions/terraform.instructions.md: sha256:c5744d57e7934ac22a2e71b1683284bfe2d4d3e3412f28006d193bf5bd1df399
+  content_hash: sha256:82d161e7c23bfe90976a95a3f228abb23f15cc5a87eb7b6a3012bd93aa09cbff
+  discovered_via: ministryofjustice
+  marketplace_plugin_name: integration-hub-engineering
+deployments:
+- kind: project-relative
+  target: copilot
+  value: .github/instructions/file-transfer-service.instructions.md
+  runtime: null
+  scope: project
+  owners:
+  - ministryofjustice/ai-toolkit/toolkits/integration-hub/engineering
+  active_owner: ministryofjustice/ai-toolkit/toolkits/integration-hub/engineering
+  content_hash: sha256:cca424ab9673938b0e275c30ea146ffa5b2c34342cbbff055bd5ad3f9a9f2801
+- kind: project-relative
+  target: copilot
+  value: .github/instructions/pull-request.instructions.md
+  runtime: null
+  scope: project
+  owners:
+  - ministryofjustice/ai-toolkit/toolkits/integration-hub/engineering
+  active_owner: ministryofjustice/ai-toolkit/toolkits/integration-hub/engineering
+  content_hash: sha256:d611f8c9f9b403c102a94f25d9580433441f128ff5a838dcbd74e6b0c814fb1f
+- kind: project-relative
+  target: copilot
+  value: .github/instructions/terraform.instructions.md
+  runtime: null
+  scope: project
+  owners:
+  - ministryofjustice/ai-toolkit/toolkits/integration-hub/engineering
+  active_owner: ministryofjustice/ai-toolkit/toolkits/integration-hub/engineering
+  content_hash: sha256:c5744d57e7934ac22a2e71b1683284bfe2d4d3e3412f28006d193bf5bd1df399

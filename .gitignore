@@ -10,3 +10,10 @@ env/
 terraform.tfstate
 artifact.tar
 docs/
+
+
+# APM dependencies
+apm_modules/
+
+# Locally generated Copilot instructions
+/.github/instructions/
