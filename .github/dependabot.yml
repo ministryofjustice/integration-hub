@@ -5,6 +5,7 @@
 # https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 version: 2
+enable-beta-ecosystems: true
 
 updates:
   - package-ecosystem: "bundler"
@@ -20,6 +21,10 @@ updates:
     schedule:
       interval: "daily"
   - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "apm"
     directory: "/"
     schedule:
       interval: "daily"

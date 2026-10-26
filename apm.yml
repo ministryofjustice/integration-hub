@@ -9,7 +9,7 @@ targets:
   - copilot
 dependencies:
   apm:
-    - ministryofjustice/ai-toolkit/toolkits/integration-hub/engineering
+    - ministryofjustice/ai-toolkit/toolkits/integration-hub/engineering#main
   mcp: []
 includes: auto
 scripts: {}
