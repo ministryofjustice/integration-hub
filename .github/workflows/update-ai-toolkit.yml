@@ -1,0 +1,133 @@
+---
+name: Update AI Toolkit
+
+on:
+  workflow_dispatch:
+  # Temporary branch-push trigger for testing before the workflow is on main.
+  push:
+    branches:
+      - ci/ai-toolkit-updates
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/update-ai-toolkit.yml"
+      - "scripts/toolkit-update/**"
+      - "tests/toolkit-update/**"
+      - "apm.yml"
+      - "apm.lock.yaml"
+
+permissions: {}
+
+jobs:
+  test:
+    name: Test AI toolkit updater
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        if: github.event.repository.private == false
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install updater dependencies
+        run: python -m pip install -r scripts/toolkit-update/requirements.txt
+
+      - name: Run updater tests
+        run: python -B -m unittest discover -s tests/toolkit-update -p 'test_*.py' -v
+
+      - name: Validate the committed toolkit lockfile
+        env:
+          GITHUB_APM_PAT: ${{ github.token }}
+        run: apm install --frozen --target copilot
+
+  update:
+    name: Propose AI toolkit update
+    needs: test
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/ci/ai-toolkit-updates')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: update-ai-toolkit-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Harden Runner
+        if: github.event.repository.private == false
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout update base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install updater dependencies
+        run: python -m pip install -r scripts/toolkit-update/requirements.txt
+
+      - name: Prepare and validate toolkit update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_APM_PAT: ${{ github.token }}
+        run: |
+          python -B scripts/toolkit-update/update_toolkit.py \
+            --body-file "$RUNNER_TEMP/toolkit-update-pr.md"
+
+      - name: Create or refresh update pull request
+        id: pull-request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ github.token }}
+          base: ${{ github.ref_name }}
+          branch: ${{ github.event_name == 'push' && 'chore/test-ai-toolkit-update' || 'chore/update-ai-toolkit' }}
+          delete-branch: true
+          sign-commits: true
+          add-paths: |
+            apm.yml
+            apm.lock.yaml
+          commit-message: |
+            chore(deps): update Integration Hub AI toolkit
+
+            Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+          title: "⬆️ Update Integration Hub AI toolkit"
+          body-path: ${{ runner.temp }}/toolkit-update-pr.md
+          reviewers: copilot-pull-request-reviewer[bot]
+
+      - name: Verify commit signing and report result
+        env:
+          PR_URL: ${{ steps.pull-request.outputs.pull-request-url }}
+          COMMITS_VERIFIED: ${{ steps.pull-request.outputs.pull-request-commits-verified }}
+        run: |
+          if [[ -n "$PR_URL" ]]; then
+            if [[ "$COMMITS_VERIFIED" != "true" ]]; then
+              echo "::error::The toolkit update PR contains an unverified commit."
+              exit 1
+            fi
+            echo "Toolkit update PR (human review required): $PR_URL" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No toolkit update PR is needed." >> "$GITHUB_STEP_SUMMARY"
+          fi
