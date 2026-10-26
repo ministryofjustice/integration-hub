@@ -3,10 +3,9 @@ name: Update AI Toolkit
 
 on:
   workflow_dispatch:
-  # Temporary branch-push trigger for testing before the workflow is on main.
-  push:
-    branches:
-      - ci/ai-toolkit-updates
+  schedule:
+    # Check for toolkit updates at 08:00 UTC, Monday to Friday.
+    - cron: "0 9 * * 1-5"
   pull_request:
     branches:
       - main
@@ -58,12 +57,12 @@ jobs:
     name: Propose AI toolkit update
     needs: test
     if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/ci/ai-toolkit-updates')
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: update-ai-toolkit-${{ github.ref_name }}
+      group: update-ai-toolkit
       cancel-in-progress: false
     permissions:
       contents: write
@@ -78,7 +77,7 @@ jobs:
       - name: Checkout update base
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref_name }}
+          ref: main
           persist-credentials: false
 
       - name: Set up Python
@@ -102,8 +101,8 @@ jobs:
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ github.token }}
-          base: ${{ github.ref_name }}
-          branch: ${{ github.event_name == 'push' && 'chore/test-ai-toolkit-update' || 'chore/update-ai-toolkit' }}
+          base: main
+          branch: chore/update-ai-toolkit
           delete-branch: true
           sign-commits: true
           add-paths: |
