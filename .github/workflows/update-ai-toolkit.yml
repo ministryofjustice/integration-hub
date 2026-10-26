@@ -4,7 +4,7 @@ name: Update AI Toolkit
 on:
   workflow_dispatch:
   schedule:
-    # Check for toolkit updates at 08:00 UTC, Monday to Friday.
+    # Check for toolkit updates at 09:00 UTC, Monday to Friday.
     - cron: "0 9 * * 1-5"
   pull_request:
     branches:
