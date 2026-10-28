@@ -2,7 +2,7 @@
 owner_slack: "#integration-hub"
 title: Set up your development environment
 weight: 1
-last_reviewed_on: 2026-10-26
+last_reviewed_on: 2026-10-28
 review_in: 3 months
 ---
 
@@ -76,6 +76,54 @@ make sure it loads it.
 
 You're welcome to submit a pull request to our toolkit here:
 [Integration Hub engineering toolkit](https://github.com/ministryofjustice/ai-toolkit/tree/main/toolkits/integration-hub/engineering).
+
+## Working outside the Integration Hub repository
+
+We also work in repositories such as [Modernisation Platform Environments](https://github.com/ministryofjustice/modernisation-platform-environments).
+But the setup above stays in your Integration Hub checkout, so it won't follow you
+when you switch repositories.
+
+To take the guidance with you, install the toolkit for your user account.
+You only need to do this once on each machine, and you don't need to add files
+to the other repositories you work in.
+
+### Set it up once
+
+With APM installed, you can run this from any directory:
+
+```sh
+apm install --global --target copilot ministryofjustice/ai-toolkit/toolkits/integration-hub/engineering
+```
+
+### Keep this copy up to date
+
+Before starting work and before opening or updating a pull request, run this
+from any directory:
+
+```sh
+apm update --global --target copilot
+```
+
+Review and confirm the update plan, then read what's changed.
+
+### Make sure Copilot can see it
+
+Copilot CLI looks for your guidance in `~/.copilot/instructions/`. Current
+versions of VS Code can use it too, but the setup depends on which agent runs
+your chat (called the *harness* in VS Code):
+
+- **Copilot harness:** the installation above puts the files where it expects them.
+- **Local harness:** add `~/.copilot/instructions` as an enabled folder in
+  `chat.instructionsFilesLocations` in your **User settings**.
+
+After installing or updating, open the repository you're working in and start
+a fresh chat. It's worth checking the guidance is being picked up:
+
+- **In VS Code**, look for the toolkit instructions in the Agent Customizations
+  editor. Try a small, relevant task and expand **References** in the response
+  to see which instructions were used.
+- **In Copilot CLI**, ask Copilot to read the relevant installed instruction
+  file before starting the task, and check that it actually reads it.
 
 ## Before opening a pull request
 
