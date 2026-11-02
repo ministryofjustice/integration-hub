@@ -262,6 +262,8 @@ def run_rejected_request_test(route, timeout_seconds=120):
     delivered. This deliberately increments the writer's failed-record metric.
     """
     run_token = uuid.uuid4().hex
+    # TODO: also reject a lookalike prefix, a "../" key and another transfer identity.
+    # Needs the harness role and test dispatch entries to cover a second prefix first.
     cases = [
         (
             "source key outside the authorised prefix",
