@@ -4,9 +4,9 @@ dependencies:
 - repo_url: ministryofjustice/ai-toolkit
   name: integration-hub-engineering
   host: github.com
-  resolved_commit: c4d3da1eba47052d065c31dfa54519700a4f9a04
+  resolved_commit: 3b9d0d7d04985d2994a8d7b249f381cd084757e0
   resolved_ref: main
-  version: 1.2.0
+  version: 1.2.1
   virtual_path: toolkits/integration-hub/engineering
   is_virtual: true
   package_type: apm_package
@@ -18,7 +18,7 @@ dependencies:
     .github/instructions/file-transfer-service.instructions.md: sha256:cca424ab9673938b0e275c30ea146ffa5b2c34342cbbff055bd5ad3f9a9f2801
     .github/instructions/pull-request.instructions.md: sha256:d611f8c9f9b403c102a94f25d9580433441f128ff5a838dcbd74e6b0c814fb1f
     .github/instructions/terraform.instructions.md: sha256:c5744d57e7934ac22a2e71b1683284bfe2d4d3e3412f28006d193bf5bd1df399
-  content_hash: sha256:7f41783de4c47c159c860f817123509559f6b904606fe522286dc61713f39718
+  content_hash: sha256:a91ea6609bd754dd78cf81d7b1bea3a38a317ea4993f42d44b17e40dbce9ed00
   discovered_via: ministryofjustice
   marketplace_plugin_name: integration-hub-engineering
 - repo_url: aws/agent-toolkit-for-aws
