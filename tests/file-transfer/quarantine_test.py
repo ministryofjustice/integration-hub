@@ -5,7 +5,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from harness import run_terminal_routing_test
+from common.delivery import run_terminal_routing_test
 
 
 EICAR_URL = "https://secure.eicar.org/eicar.com"
