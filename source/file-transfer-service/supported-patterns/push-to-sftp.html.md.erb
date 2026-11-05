@@ -20,6 +20,8 @@ through SFTP.
 
 ## How the pattern works
 
+![Files uploaded through AWS Transfer move from the incoming bucket to the processing bucket for a GuardDuty malware scan. Clean files move to the clean bucket, and a notification passes through SNS and SQS to a Lambda function that delivers them to the SFTP destination via the Modernisation Platform.](/images/supported-patterns-push-to-sftp/push-to-sftp.png)
+
 The existing file-transfer journey stays the same until a file is confirmed as
 clean. For more detail, see [how files move through the file transfer
 service](../user-guide/how-files-move-through-the-file-transfer-service.html).
