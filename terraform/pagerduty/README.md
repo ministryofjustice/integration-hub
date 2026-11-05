@@ -52,7 +52,8 @@ This proposal does not create or assume any AWS role.
 Supply `pagerduty_token` at runtime from the approved secret store, for example
 as `TF_VAR_pagerduty_token` in a future protected workflow. Never put the token
 in Terraform variables files, source control, outputs, or logs. The variable is
-marked sensitive, but that is not a substitute for secure secret delivery.
+sensitive and ephemeral, so Terraform does not persist its value in state or
+saved plan files. This is not a substitute for secure runtime secret delivery.
 
 ## Decisions required before deployment
 
