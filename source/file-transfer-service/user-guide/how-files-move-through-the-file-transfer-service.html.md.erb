@@ -8,9 +8,9 @@ review_in: 3 months
 
 # <%= current_page.data.title %>
 
-The Integration Hub file transfer service receives a file, checks it for
-malware and sends it to the right destination. This happens automatically after
-you upload a file using SFTP or FTPS.
+The Integration Hub file transfer service receives a file and checks it for
+malware. For clean files, it can request configured actions and notifications.
+This happens automatically after you upload a file using SFTP or FTPS.
 
 ## What happens after you upload a file
 
@@ -18,7 +18,7 @@ you upload a file using SFTP or FTPS.
    has received the exact version that you uploaded.
 2. The file moves to a secure processing area for a malware scan.
 3. The scan result determines where the file goes next:
-   * clean files move to the receiving service's destination
+   * clean files move to a clean area
    * files that may contain malware move to quarantine
    * files with an unclear or unsupported scan result move to an investigation
      area

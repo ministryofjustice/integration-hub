@@ -27,8 +27,8 @@ redrive policy, so replay is a deliberate manual operation. Do not purge a DLQ.
    object version ID and the message's error details. Do not copy a message body
    containing sensitive data into a ticket, Slack or GitHub.
 5. For a STAGE or ROUTE failure, inspect the durable operation record and exact
-  object versions as described below. Do not replay while a lease is active
-  or while an S3 side effect or event publication is ambiguous.
+   object versions as described below. Do not replay while a lease is active
+   or while an S3 side effect or event publication is ambiguous.
 
 ## File mover recovery order
 
@@ -45,13 +45,13 @@ Do not delete or reset it to force a replay.
 Use recovery mechanisms in this order:
 
 1. Allow Lambda's asynchronous retries to resume the operation after its lease
-  expires.
+   expires.
 2. Correct a transient dependency or IAM failure and replay the original event
-  from the mover's Lambda DLQ after retries are exhausted.
+   from the mover's Lambda DLQ after retries are exhausted.
 3. Replay the original canonical event from the shared file-transfer EventBridge
-  DLQ if EventBridge could not invoke Lambda.
+   DLQ if EventBridge could not invoke Lambda.
 4. Escalate for manual reconciliation if an S3 side effect or EventBridge
-  publication is ambiguous.
+   publication is ambiguous.
 
 Never construct a replacement event by hand. The top-level EventBridge ID,
 correlation ID and exact S3 version are part of the operation contract. Search

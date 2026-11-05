@@ -51,6 +51,18 @@ If port 4567 is already in use, run `make preview PORT=4568` and open `http://12
 The [Makefile](Makefile) contains the Docker command and uses the same pinned publisher image
 as the [publishing workflow](.github/workflows/documentation.yml).
 
+The sidebar lists pages and, with JavaScript enabled, the current page's section headings.
+Other pages' headings are omitted because the publisher can generate incorrect links to
+them. Without JavaScript, the page links and the headings in the content remain available.
+
+### Check navigation
+
+Run the navigation tests using the publisher image:
+
+```sh
+make test-docs
+```
+
 ### Check Links
 
 From the repository's root directory, run:
@@ -61,7 +73,8 @@ make link-check
 
 This runs Lychee in Docker using the version and link-check options used by CI. No local
 Lychee installation is required. The check reads Markdown, HTML, and ERB files and needs
-internet access to check external links.
+internet access to check external links. It excludes generated `docs/` and `apm_modules/`
+directories so local generated files do not affect the results.
 
 Review any failures in the terminal before opening a PR. HTTP responses 403 and 429 are
 accepted, matching CI, so a passing check does not guarantee that every link is accessible.

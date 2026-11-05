@@ -6,7 +6,7 @@ service_link: /
 enable_search: true
 multipage_nav: true
 collapsible_nav: true
-max_toc_heading_level: 2
+max_toc_heading_level: 1
 prevent_indexing: false
 show_contribution_banner: true
 github_repo: ministryofjustice/integration-hub

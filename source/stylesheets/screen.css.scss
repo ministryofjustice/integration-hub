@@ -1,1 +1,49 @@
 @import "govuk_tech_docs";
+
+.subsection-navigation__item {
+  position: relative;
+}
+
+.toc__list .subsection-navigation__list[hidden] {
+  display: none;
+}
+
+.subsection-navigation__toggle {
+  position: absolute;
+  top: 0;
+  right: -25px;
+  width: 50px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+
+  &:focus {
+    @include govuk-focused-text;
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 10px;
+    right: 20px;
+    width: 10px;
+    height: 10px;
+    border: 2px solid currentColor;
+    border-width: 2px 2px 0 0;
+    transform: rotate(135deg);
+  }
+
+  &[aria-expanded="true"]::after {
+    top: 18px;
+    transform: rotate(315deg);
+  }
+}
+
+@include govuk-media-query($until: tablet) {
+  .js .toc li li li {
+    display: list-item;
+  }
+}

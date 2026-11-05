@@ -66,7 +66,7 @@ You need AWS CLI v2 and Python 3.9 or newer installed.
 2. Expand **integration-hub-file-transfer-test** in the list of AWS accounts.
    If it is missing, request access from the team.
 3. Next to your assigned role, click on the `Access keys` link. This will give you options to get your temporary access keys.
-4. Using the access keys, you can run the baseline tests
+4. Using the access keys, you can run the baseline tests:
 
 ```sh
 python3 -B tests/file-transfer/performance_test.py \

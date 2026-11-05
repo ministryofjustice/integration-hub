@@ -1,4 +1,4 @@
-.PHONY: preview link-check
+.PHONY: preview link-check test-docs
 
 .DEFAULT_GOAL := preview
 
@@ -22,4 +22,14 @@ link-check:
 		$(LYCHEE_IMAGE) \
 		--verbose --no-progress './**/*.md' './**/*.html' './**/*.erb' \
 		--accept 403,200,429 \
-		--exclude '^https://github-community\.service\.justice\.gov\.uk/repository-standards/.*$$'
+		--exclude '^https://github-community\.service\.justice\.gov\.uk/repository-standards/.*$$' \
+		--exclude-path '(^|/)(apm_modules|docs)(/|$$)'
+
+test-docs:
+	docker run --rm \
+		--platform linux/amd64 \
+		--volume "$(CURDIR):/work:ro" \
+		--workdir /work \
+		--entrypoint node \
+		$(TECH_DOCS_IMAGE) \
+		--test tests/documentation/navigation.test.js
