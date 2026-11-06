@@ -30,7 +30,7 @@ service](../user-guide/how-files-move-through-the-file-transfer-service.html).
 
 For this pattern, the push-to-s3-with-hosted-pickup action will then:
 
-1. route a matching event through the Integration Hub SNS \> SQS \> 
+1. route a matching event through the Integration Hub SNS \> SQS \>
    Lambda that serves this pattern
 2. use a managed function to copy the file to your hosted pickup bucket
 3. encrypt the file with a dedicated AWS Key Management Service (KMS) key

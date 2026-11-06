@@ -8,7 +8,7 @@ Date: 2026-10-20
 
 ## Context
 
-We need to manage access to the Transfer Web App in a way that is consistent with our overall identity and access management strategy. Using Entra Groups allows us to centralize and simplify the management of user permissions for this application.
+We need to manage access to the Transfer Web App in a way that is consistent with our overall identity and access management strategy. Using Entra Groups allows us to centralise and simplify the management of user permissions for this application.
 
 ## Decision
 
@@ -18,7 +18,7 @@ We will use Entra Groups to manage access to the Transfer Web App over GitHub-ba
 
 - Groups will be synchronised from Entra into IAM Identity Center on a 2-hourly basis
 
-- Groups will need to be prefixed `azure-aws-sso` in order to be sync'd
+- Groups will need to be prefixed `azure-aws-sso` in order to be synchronised
 
 - Group management will remain a manual endeavour, but using nested groups will make this easier
 

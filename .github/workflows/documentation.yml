@@ -8,6 +8,8 @@ on:
     paths:
       - "config/**"
       - "source/**"
+      - "tests/documentation/**"
+      - "Makefile"
       - ".github/workflows/documentation.yml"
   push:
     branches:
@@ -15,6 +17,8 @@ on:
     paths:
       - "config/**"
       - "source/**"
+      - "tests/documentation/**"
+      - "Makefile"
       - ".github/workflows/documentation.yml"
 
 permissions: {}
@@ -40,6 +44,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Test navigation
+        run: node --test tests/documentation/navigation.test.js
 
       - name: Build
         id: build
@@ -84,6 +91,7 @@ jobs:
             --verbose --no-progress './**/*.md' './**/*.html' './**/*.erb'
             --accept 403,200,429
             --exclude '^https://github-community\.service\.justice\.gov\.uk/repository-standards/.*$'
+            --exclude-path '(^|/)(apm_modules|docs)(/|$)'
 
   publish:
     if: github.ref == 'refs/heads/main'
