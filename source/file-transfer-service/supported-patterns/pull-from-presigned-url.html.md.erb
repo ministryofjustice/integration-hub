@@ -1,74 +1,70 @@
 ---
 owner_slack: "#integration-hub"
-title: Pull from presigned URL
-weight: 2
-last_reviewed_on: 2026-10-08
+title: Collect files through the portal
+weight: 3
+last_reviewed_on: 2026-11-10
 review_in: 3 months
 ---
 
 # <%= current_page.data.title %>
 
-> This is a draft supported pattern. Development infrastructure has been deployed,
-> but recipient setup and live access tests are still needed before customer use.
+> This is a draft supported pattern. Development configuration exists, but
+> live access checks and customer availability still need to be confirmed.
+> Check with the Integration Hub team before planning to use it.
 
-Use this pattern when people need to collect clean files through a browser.
-Slack tells them when a file is ready and links to the existing AWS Transfer web app.
-They sign in with their organisational account and download files their group can access.
+This pattern is for people who need to collect files in a browser. When a
+clean file is ready, the Integration Hub sends a Slack notification with a
+link to the file transfer portal.
 
-## How it works
+Use this pattern when people need to download files themselves, rather than
+have them delivered directly to a service.
 
-![Clean-file events reach a copy and notification function through EventBridge, SNS and SQS. Slack links to the Transfer web app; IAM Identity Center and S3 Access Grants control access to the pickup bucket.](/images/supported-patterns-pull-from-presigned-url/pull-from-presigned-url.png)
+## How the pattern works
 
-[Download the editable draw.io diagram](/images/supported-patterns-pull-from-presigned-url/pull-from-presigned-url.drawio).
-Open it in draw.io with the AWS architecture shape library enabled.
+![Overview of how a clean file is copied for pickup and an authorised user collects it through the portal.](/images/supported-patterns-pull-from-presigned-url/pull-from-presigned-url.png)
 
-1. A file passes scanning. Its event goes through Amazon EventBridge, Simple
-   Notification Service (SNS) and Simple Queue Service (SQS).
-2. A Lambda function copies that exact file version into a private pickup bucket.
-   This leaves the clean bucket's retention unchanged.
-3. After the copy succeeds, Slack receives a link to the Transfer web app and the
-   bucket and path where the file is stored.
-4. The recipient signs in through IAM Identity Center, finds the file and downloads it.
-   S3 Access Grants restricts them to their group's pickup directory.
+After a file passes its malware scan, the Integration Hub copies it to a
+private pickup area. The original clean file remains in the clean area, subject
+to its usual retention policy.
 
-The Slack link opens the portal, not the individual file. It contains no signed S3 URL.
-This component currently owns the copy step and pickup bucket; it does not reuse
-`push-to-s3-with-hosted-pickup`.
+The Slack notification contains the file name, its pickup path and a link to
+the portal. Spaces and special characters in the message may appear as codes,
+such as `%20` for a space. The link opens the portal, not the file itself.
 
-## Who can download files
+To collect a file:
 
-We agree a source prefix and an authorised group for each recipient. Files are stored
-under that recipient's directory. Access is read-only: the group cannot upload or
-delete files there, or access another recipient's directory without a separate grant.
+1. Open the portal using the link in the Slack notification.
+2. Sign in with your organisational account.
+3. Use the pickup path in the notification to find and download the file.
 
-Being a MoJ user, or having access to the Transfer web app, does not automatically
-allow access to these files. Forwarding a Slack link does not grant access either.
-The existing Identity Center setup is used; no separate sign-in application is needed.
+Only members of an authorised group can access the pickup area. Receiving or
+forwarding the Slack message does not grant access. Access to the pickup
+folder is read-only.
 
-## How long files are available
+## How long you have to collect files
 
-The pickup bucket has a seven-day lifecycle rule. S3 removes expired files
-asynchronously, so this is **not an exact seven-day access or deletion deadline**.
-Tell us if your service needs a strict cutoff before adopting this pattern.
+Collect files within seven days. The pickup area has a seven-day expiry rule,
+but removal is asynchronous, so this is not an exact deletion or access cutoff.
+Tell the Integration Hub team if you need a strict deadline.
 
-The bucket rejects signed S3 requests whose signatures are more than five minutes old.
-The Transfer web app manages the download links; we still need to verify its download
-and retry behaviour against this limit. A signed link may be shared and reused during
-its effective lifetime, and a download started before expiry can finish afterwards.
+Keep downloaded files in line with your service's own retention requirements.
 
-Removing group access may not immediately revoke credentials already issued to a
-user. The live access tests must establish that delay before customer use.
+## Discuss this pattern
 
-## Arrange a trial
+To discuss whether this draft pattern is suitable for your service, post in
+`#ask-integration-hub` with:
 
-Contact `#ask-integration-hub` with:
+* the service that will send the files
+* the service and people who will collect them
+* the environment and source prefix you need
+* the group that needs access and the Slack channel for notifications
+* your expected file sizes, volume and collection frequency
+* your retention requirements
 
-- the environment and source file prefix you want to use
-- the Identity Center group that should collect the files
-- the Slack channel for notifications
-- expected file sizes and how long users need to collect them
+Do not include file contents, passwords, private keys or other sensitive data.
 
-Do not post webhook URLs, credentials or file contents in the channel.
-No recipients are enabled in the current configuration.
+## Getting help
 
-Team members can follow the [setup and test guide](../operations/setting-up-slack-file-pickup.html).
+If you cannot find or download a file, contact `#ask-integration-hub`. Include
+the environment, approximate upload time and a description of the problem.
+Do not share file contents or credentials.
