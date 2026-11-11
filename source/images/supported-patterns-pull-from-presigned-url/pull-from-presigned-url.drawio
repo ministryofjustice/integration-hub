@@ -1,0 +1,77 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="file-pickup" name="File pickup">
+    <mxGraphModel dx="1400" dy="850" grid="1" gridSize="10" page="1" pageWidth="1400" pageHeight="850">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="File transfer: Slack notification and browser pickup" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F5F9;strokeColor=#64748B;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="300" y="20" width="770" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="clean" value="Clean file event" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;fillColor=#7AA116;strokeColor=#FFFFFF;fontColor=#232F3E;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=16;whiteSpace=wrap;labelWidth=210;spacingBottom=12;" vertex="1" parent="1">
+          <mxGeometry x="50" y="135" width="85" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="events" value="Amazon EventBridge" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.eventbridge;fillColor=#E7157B;strokeColor=#FFFFFF;fontColor=#232F3E;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=16;whiteSpace=wrap;labelWidth=210;spacingBottom=12;" vertex="1" parent="1">
+          <mxGeometry x="260" y="135" width="85" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="sns" value="Amazon SNS" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sns;fillColor=#E7157B;strokeColor=#FFFFFF;fontColor=#232F3E;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=16;whiteSpace=wrap;labelWidth=210;spacingBottom=12;" vertex="1" parent="1">
+          <mxGeometry x="470" y="135" width="85" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="sqs" value="Amazon SQS" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sqs;fillColor=#E7157B;strokeColor=#FFFFFF;fontColor=#232F3E;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=16;whiteSpace=wrap;labelWidth=210;spacingBottom=12;" vertex="1" parent="1">
+          <mxGeometry x="680" y="135" width="85" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="lambda" value="AWS Lambda&lt;br&gt;Copy, then notify" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;fillColor=#ED7100;strokeColor=#FFFFFF;fontColor=#232F3E;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=16;whiteSpace=wrap;labelWidth=210;spacingBottom=12;" vertex="1" parent="1">
+          <mxGeometry x="890" y="135" width="85" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="bucket" value="Private S3 pickup bucket&lt;br&gt;Seven-day lifecycle" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;fillColor=#7AA116;strokeColor=#FFFFFF;fontColor=#232F3E;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=16;whiteSpace=wrap;labelWidth=210;spacingBottom=12;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="135" width="85" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="slack" value="Slack&lt;br&gt;Portal link and file location" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F5F9;strokeColor=#64748B;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="820" y="355" width="200" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="portal" value="AWS Transfer web app&lt;br&gt;Sign in and find the file" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F5F9;strokeColor=#64748B;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="820" y="535" width="200" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="identity" value="IAM Identity Center&lt;br&gt;Assigned group" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.single_sign_on;fillColor=#DD344C;strokeColor=#FFFFFF;fontColor=#232F3E;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=16;whiteSpace=wrap;labelWidth=210;spacingBottom=12;" vertex="1" parent="1">
+          <mxGeometry x="490" y="530" width="85" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="grants" value="S3 Access Grants&lt;br&gt;Read-only recipient scope" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F5F9;strokeColor=#64748B;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="535" width="160" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="notes" value="Slack contains no signed S3 URL. Forwarding the portal link does not grant file access.&lt;br&gt;Signed S3 requests older than five minutes are denied. Lifecycle expiry is not an exact deletion deadline." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F5F9;strokeColor=#64748B;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="220" y="740" width="1030" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="clean" target="events">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="events" target="sns">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="sns" target="sqs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="sqs" target="lambda">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="Copy exact version" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="lambda" target="bucket">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="After copy succeeds" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="lambda" target="slack">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="Recipient opens link" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="slack" target="portal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="Authenticate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="portal" target="identity">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="Authorise download" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="portal" target="grants">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="Scoped read" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#475569;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="grants" target="bucket">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

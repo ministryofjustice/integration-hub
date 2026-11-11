@@ -1,0 +1,47 @@
+---
+owner_slack: "#integration-hub"
+title: Proposed Python unit-test automation
+last_reviewed_on: 2026-11-10
+review_in: 3 months
+---
+
+# <%= current_page.data.title %>
+
+This is a proposal, not an available workflow. It describes a shared way to
+test file-transfer Python functions in `modernisation-platform-environments`,
+instead of creating a separate workflow for each delivery pattern.
+
+## What the workflow should do
+
+When a relevant function, shared code, test or dependency changes, run the
+affected unit tests and report the exact revision and any failing suite.
+Report a changed function without tests rather than silently skipping it.
+Keep a manual rerun option.
+
+The proposed runner would live in `integration-hub`. A cross-repository
+trigger needs agreement from the Modernisation Platform team. If that is not
+available, a scheduled watcher could check pull-request heads and main.
+Before using a watcher, agree how often it runs and where it records tested
+revisions so it does not repeat runs or alerts.
+
+## Safety and reporting
+
+Run pull-request code on isolated runners with read-only repository access,
+without AWS credentials or Slack secrets. A separate trusted reporting job
+would send a concise failure alert to an agreed Slack channel, with a link to
+the logs but no file contents, credentials or raw test output.
+
+Notification failures must remain visible. Agree the GitHub App permissions
+needed to publish results to the infrastructure pull request before making
+the check a merge requirement.
+
+## Before implementing
+
+Agree the trigger, Slack channel and secret owner with the relevant teams.
+Use a suite manifest for commands, working directories and pinned development
+dependencies, and run every affected suite when shared code changes.
+
+Test a passing run, an intentional failure and its Slack alert, and a manual
+rerun. Confirm fork pull requests cannot access Slack or AWS credentials.
+This proposal is separate from the existing AWS smoke-test harness, which
+checks deployed infrastructure.
