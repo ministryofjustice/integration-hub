@@ -86,10 +86,18 @@ def verify_source_retained(source_object):
 
     Delivery copies the clean file and keeps it; only the lifecycle rule may expire it.
     """
-    aws_s3(
-        "head-object", "--bucket", source_object["bucket"],
-        "--key", source_object["key"], "--version-id", source_object["versionId"],
+    # List versions rather than HeadObject: the harness may list clean versions but not read them.
+    result = aws_s3(
+        "list-object-versions", "--bucket", source_object["bucket"],
+        "--prefix", source_object["key"],
     )
+    retained = any(
+        version.get("Key") == source_object["key"]
+        and version.get("VersionId") == source_object["versionId"]
+        for version in result.get("Versions", [])
+    )
+    if not retained:
+        raise RuntimeError("The exact clean source version is no longer present after delivery.")
     print("PASS: the exact clean source version was retained.", flush=True)
 
 

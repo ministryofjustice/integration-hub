@@ -29,7 +29,6 @@ SFTP_DESTINATION_PREFIX_VARIABLE = "FILE_TRANSFER_SFTP_DESTINATION_PREFIX"
 PRESIGNED_BUCKET_VARIABLE = "FILE_TRANSFER_PRESIGNED_PICKUP_BUCKET"
 PRESIGNED_RECIPIENT_VARIABLE = "FILE_TRANSFER_PRESIGNED_RECIPIENT_ID"
 PRESIGNED_INCOMING_PREFIX_VARIABLE = "FILE_TRANSFER_PRESIGNED_INCOMING_PREFIX"
-PRESIGNED_QUEUE_URL_VARIABLE = "FILE_TRANSFER_PRESIGNED_NOTIFICATION_QUEUE_URL"
 
 
 @dataclass(frozen=True)
@@ -51,7 +50,6 @@ class Route:
     writer_queue_name: str = ""
     verifies_object_metadata: bool = False
     recipient_id: str = ""
-    notification_queue_url: str = ""
     retention_days: int = 0
 
     @property
@@ -175,7 +173,6 @@ def presigned_route(environ=None):
         ),
         destination_prefix=f"{recipient}/",
         recipient_id=recipient,
-        notification_queue_url=environ.get(PRESIGNED_QUEUE_URL_VARIABLE, "").strip(),
     )
 
 

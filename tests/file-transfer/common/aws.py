@@ -38,3 +38,28 @@ def aws_cli(service, operation, *arguments, timeout=30):
 def aws_s3(operation, *arguments, timeout=30):
     """Run an S3 command through the shared AWS command/error handling helper."""
     return aws_cli("s3api", operation, *arguments, timeout=timeout)
+
+
+def aws_cli_failure(service, operation, *arguments, timeout=30):
+    """Run an AWS CLI command that is expected to be refused.
+
+    Return the error text if the command failed, or None if it succeeded. A timeout
+    or missing CLI raises instead, so an outage cannot be mistaken for a refusal.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "aws", service, operation, *arguments,
+                "--region", REGION,
+                "--output", "json",
+                "--no-cli-pager",
+                "--cli-connect-timeout", "10",
+                "--cli-read-timeout", str(math.ceil(timeout)),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError(f"AWS {operation} failed or timed out.") from error
+    return None if result.returncode == 0 else result.stderr
