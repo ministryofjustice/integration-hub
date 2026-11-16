@@ -127,7 +127,7 @@ def hosted_pickup_route(environ=None):
         name=PUSH_TO_S3_WITH_HOSTED_PICKUP,
         label="hosted pickup bucket",
         incoming_prefix=_prefix(
-            environ, HOSTED_INCOMING_PREFIX_VARIABLE, "test-harness/push-to-s3-with-hosted-pickup/"
+            environ, HOSTED_INCOMING_PREFIX_VARIABLE, "test-harness/hosted-pickup/"
         ),
         destination_bucket=_required(
             environ, HOSTED_BUCKET_VARIABLE, "the hosted pickup bucket for the test entry"
