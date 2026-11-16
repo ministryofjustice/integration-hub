@@ -1,64 +1,57 @@
-# Integration Hub PagerDuty business services — proposal
+# Integration Hub PagerDuty business services
 
-**Status: draft for design review. Do not apply or merge before approval.**
+The GitHub Actions workflow runs Terraform plans only. It does not apply changes.
 
-## Proposed scope
+## What this creates
 
-Create these three business services in the agreed PagerDuty account:
+This Terraform configuration defines three PagerDuty business services:
 
-| Key | Proposed name |
-| --- | --- |
-| `mft` | Managed File Transfer |
-| `api_platform` | API Platform |
-| `events_platform` | Events platform |
+- Managed File Transfer
+- API Platform
+- Events platform
 
-Terraform creates only these three business services. It does not create
-technical-service dependency links, alerts, event integrations, escalation
-policies, schedules, or Slack connections. Team assignment is optional until
-the Integration Hub PagerDuty team is confirmed.
+Create the status page, add these services to it and link technical services
+in PagerDuty separately. This configuration does not manage alerts,
+integrations, escalation policies, schedules or Slack connections.
 
-Create and configure the external status page manually in PagerDuty. Add the
-business services to the page manually after they have been created. The page
-and its service components are not managed by this Terraform configuration.
+## Before running
 
-## State backend
+Confirm the PagerDuty account before running a plan. Team assignment is
+optional; set `pagerduty_team_id` to assign the services to a team.
 
-The S3 backend is declared without account-specific settings. Supply the
-approved backend configuration outside the repository when initializing
-Terraform, for example with `terraform init -backend-config=backend.hcl`.
-Confirm the state account, bucket, region, unique key, KMS key, and locking
-approach before creating that file or running `terraform init` with a remote
-backend. Do not commit credentials or environment-specific backend values.
+The workflow needs these repository secrets in Integration Hub:
 
-The intended backend should use a dedicated state key, encryption, restricted
-access, and locking. The existing Integration Hub environment backend is not
-assumed to be approved for this PagerDuty state.
+- `PAGERDUTY_AWS_ROLE_ARN`: the production role ARN, ending in
+  `role/github-actions/integration-hub-pagerduty`.
+- `PAGERDUTY_STATE_KMS_KEY_ARN`: the full ARN of the state encryption key,
+  not the key used for the API token.
 
-## GitHub OIDC deployment design
+The API token is stored in `pagerduty/api-key` in AWS Secrets Manager.
+When replacing it, an authorised person should store just the token on one
+line, not JSON.
 
-Before enabling deployment, provision or approve a role specifically for
-`ministryofjustice/integration-hub`. Restrict its trust to the repository and
-approved GitHub environments, with `sts.amazonaws.com` as the audience. Scope
-its permissions to the selected state bucket and KMS key, plus read access to
-the PagerDuty secret. Prefer separate plan and apply roles, with apply gated by
-a protected GitHub environment and reviewer approval.
+The workflow reads the token only when planning. Do not put it in GitHub,
+code, variables files or logs. Terraform marks it sensitive and ephemeral,
+so its value is not saved in state or plan files.
 
-The existing application deployment role for the API repository is not assumed
-to trust this repository or have the required state and secret permissions.
-This proposal does not create or assume any AWS role.
+## Running a plan
 
-## PagerDuty authentication
+Pull requests run formatting and validation without AWS access.
 
-Supply `pagerduty_token` at runtime from the approved secret store, for example
-as `TF_VAR_pagerduty_token` in a future protected workflow. Never put the token
-in Terraform variables files, source control, outputs, or logs. The variable is
-sensitive and ephemeral, so Terraform does not persist its value in state or
-saved plan files. This is not a substitute for secure runtime secret delivery.
+Open **Actions > PagerDuty Terraform > Run workflow** in GitHub and select
+`main`. Review the plan in the job log. Production plans run only when
+started manually.
 
-## Decisions required before deployment
+The AWS role trusts jobs on `main`. Do not add a GitHub environment to the
+plan job: that changes the OIDC subject and prevents it from assuming the role.
+Keep `main` protected.
 
-- Confirm the PagerDuty account in which the business services will be created.
-- Confirm the AWS account and S3/KMS state backend.
-- Confirm the PagerDuty secret location and dedicated API token.
-- Confirm the GitHub OIDC role(s) and protected-environment approval process.
-- Confirm the team ID, if the business services should be assigned to a team.
+Check for existing business services before applying changes to avoid creating
+duplicates. Applying changes needs separate approval.
+
+## Terraform state
+
+State uses `pagerduty/terraform.tfstate` in the
+`integration-hub-production-pagerduty-tfstate` bucket in `eu-west-2`.
+Use the default workspace. The backend uses KMS encryption and S3 locking;
+the workflow supplies the state key ARN when it initialises Terraform.
