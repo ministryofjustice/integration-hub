@@ -1,15 +1,15 @@
 locals {
   business_services = {
     mft = {
-      name        = "Managed File Transfer"
+      name        = "Integration Hub Managed File Transfer"
       description = "Integration Hub managed file transfer"
     }
     api_platform = {
-      name        = "API Platform"
+      name        = "Integration Hub API Platform"
       description = "Integration Hub API platform"
     }
     events_platform = {
-      name        = "Events platform"
+      name        = "Integration Hub Events platform"
       description = "Integration Hub events platform"
     }
   }
