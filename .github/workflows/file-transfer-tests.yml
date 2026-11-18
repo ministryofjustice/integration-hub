@@ -26,6 +26,11 @@ on:
         type: boolean
         required: false
         default: false
+      run_routing_checks:
+        description: "Run the live investigation and quarantine checks"
+        type: boolean
+        required: false
+        default: false
   push:
     branches:
       - smoke-test
@@ -328,3 +333,11 @@ jobs:
           path: ${{ runner.temp }}/file-transfer-l4.json
           retention-days: 30
           if-no-files-found: warn
+
+      - name: L2 investigation - verify PDF routing
+        if: github.event_name == 'workflow_dispatch' && inputs.run_routing_checks
+        run: python3 -B tests/file-transfer/investigation_test.py --environment test
+
+      - name: L2 quarantine - verify EICAR routing
+        if: github.event_name == 'workflow_dispatch' && inputs.run_routing_checks
+        run: python3 -B tests/file-transfer/quarantine_test.py --environment test
