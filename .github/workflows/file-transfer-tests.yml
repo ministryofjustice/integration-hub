@@ -51,12 +51,12 @@ jobs:
     steps:
       - name: Harden Runner
         if: github.event.repository.private == false
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@v2.22.4
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: ministryofjustice/integration-hub
           ref: ${{ inputs.harness-ref || github.sha }}
@@ -75,7 +75,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: ministryofjustice/modernisation-platform-github-actions/.github/workflows/aws-secrets-management.yml@09f7bbe4b51fbdfc068014571c201d2c5b3704c0 # v6.3.0
+    uses: ministryofjustice/modernisation-platform-github-actions/.github/workflows/aws-secrets-management.yml@v6.3.0
     secrets:
       MODERNISATION_PLATFORM_ACCOUNT_NUMBER: ${{ secrets.MODERNISATION_PLATFORM_ACCOUNT_ID }}
       PASSPHRASE: ${{ secrets.PASSPHRASE }}
@@ -101,12 +101,12 @@ jobs:
     steps:
       - name: Harden Runner
         if: github.event.repository.private == false
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        uses: step-security/harden-runner@v2.22.4
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: ministryofjustice/integration-hub
           ref: ${{ inputs.harness-ref || github.sha }}
@@ -142,7 +142,7 @@ jobs:
 
       - name: Decrypt MP environment-management configuration
         if: github.repository == 'ministryofjustice/modernisation-platform-environments'
-        uses: ministryofjustice/modernisation-platform-github-actions/decrypt-secrets@09f7bbe4b51fbdfc068014571c201d2c5b3704c0 # v6.3.0
+        uses: ministryofjustice/modernisation-platform-github-actions/decrypt-secrets@v6.3.0
         with:
           environment_management: ${{ needs.fetch-secrets.outputs.environment_management }}
           PASSPHRASE: ${{ secrets.PASSPHRASE }}
@@ -182,7 +182,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Connect to AWS using the dedicated test role
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           role-to-assume: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/integration-hub-file-transfer-test-harness-test
           aws-region: ${{ env.AWS_REGION }}
@@ -322,7 +322,7 @@ jobs:
 
       - name: Preserve L4 measurements
         if: always() && github.event_name == 'workflow_dispatch' && inputs.run_l4 && steps.l4_performance.outcome != 'skipped'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: file-transfer-l4-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/file-transfer-l4.json
