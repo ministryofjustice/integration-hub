@@ -94,28 +94,17 @@ jobs:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
 
-      - name: Check required configuration
-        env:
-          AWS_ROLE_ARN: ${{ secrets.PAGERDUTY_AWS_ROLE_ARN }}
-          STATE_KMS_KEY_ARN: ${{ secrets.PAGERDUTY_STATE_KMS_KEY_ARN }}
-        run: |
-          : "${AWS_ROLE_ARN:?Set the PAGERDUTY_AWS_ROLE_ARN repository secret}"
-          : "${STATE_KMS_KEY_ARN:?Set the PAGERDUTY_STATE_KMS_KEY_ARN repository secret}"
-
       - name: Authenticate to AWS
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ secrets.PAGERDUTY_AWS_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::${{ secrets.PRODUCTION_ACCOUNT_ID }}:role/github-actions/integration-hub-pagerduty
+          allowed-account-ids: ${{ secrets.PRODUCTION_ACCOUNT_ID }}
           role-session-name: pagerduty-plan-${{ github.run_id }}
           aws-region: eu-west-2
           mask-aws-account-id: true
 
       - name: Initialise the production backend
-        env:
-          STATE_KMS_KEY_ARN: ${{ secrets.PAGERDUTY_STATE_KMS_KEY_ARN }}
-        run: |
-          terraform init -input=false -lockfile=readonly \
-            -backend-config="kms_key_id=$STATE_KMS_KEY_ARN"
+        run: terraform init -input=false -lockfile=readonly
 
       - name: Read the PagerDuty token and plan
         run: |
