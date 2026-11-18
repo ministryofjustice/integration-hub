@@ -23,9 +23,6 @@ Set the `PRODUCTION_ACCOUNT_ID` repository secret in Integration Hub to the
 12-digit production AWS account ID. The workflow uses OIDC to assume the
 existing `role/github-actions/integration-hub-pagerduty` role in that account.
 
-The role needs `kms:DescribeKey` on the state encryption key. Deploy this
-permission through modernisation-platform-environments before running the workflow.
-
 The API token is stored in `pagerduty/api-key` in AWS Secrets Manager.
 When replacing it, an authorised person should store just the token on one
 line, not JSON.
@@ -54,7 +51,7 @@ duplicates. Applying changes needs separate approval.
 State uses `pagerduty/terraform.tfstate` in the
 `integration-hub-production-pagerduty-tfstate` bucket in `eu-west-2`.
 Use the default workspace. The backend uses KMS encryption and S3 locking.
-Before initialising Terraform, the workflow uses `aws kms describe-key` to
-resolve `alias/s3/integration-hub-production-pagerduty-tfstate` in `eu-west-2`
-and passes the full key ARN to the backend. This is not the key used for
-the API token.
+The backend uses `alias/s3/integration-hub-production-pagerduty-tfstate`
+directly as its KMS key identifier. The alias must point to the existing state
+key in the production account in `eu-west-2`. This is not the key used for
+the API token. No separate KMS lookup or `kms:DescribeKey` permission is needed.
