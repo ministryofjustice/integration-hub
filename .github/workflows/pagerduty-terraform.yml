@@ -96,23 +96,45 @@ jobs:
 
       - name: Check required configuration
         env:
-          AWS_ROLE_ARN: ${{ secrets.PAGERDUTY_AWS_ROLE_ARN }}
-          STATE_KMS_KEY_ARN: ${{ secrets.PAGERDUTY_STATE_KMS_KEY_ARN }}
+          AWS_ACCOUNT_ID: ${{ secrets.PRODUCTION_ACCOUNT_ID }}
         run: |
-          : "${AWS_ROLE_ARN:?Set the PAGERDUTY_AWS_ROLE_ARN repository secret}"
-          : "${STATE_KMS_KEY_ARN:?Set the PAGERDUTY_STATE_KMS_KEY_ARN repository secret}"
+          if [[ ! "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
+            echo "::error::Set PRODUCTION_ACCOUNT_ID to the 12-digit production account ID."
+            exit 1
+          fi
 
       - name: Authenticate to AWS
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ secrets.PAGERDUTY_AWS_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::${{ secrets.PRODUCTION_ACCOUNT_ID }}:role/github-actions/integration-hub-pagerduty
+          allowed-account-ids: ${{ secrets.PRODUCTION_ACCOUNT_ID }}
           role-session-name: pagerduty-plan-${{ github.run_id }}
           aws-region: eu-west-2
           mask-aws-account-id: true
 
+      - name: Resolve the state KMS key ARN
+        id: state_kms
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.PRODUCTION_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          key_arn="$(aws kms describe-key \
+            --region eu-west-2 \
+            --key-id alias/s3/integration-hub-production-pagerduty-tfstate \
+            --query KeyMetadata.Arn \
+            --output text)"
+
+          if [[ "$key_arn" != arn:aws:kms:eu-west-2:"$AWS_ACCOUNT_ID":key/* ]]; then
+            echo "::error::KMS lookup did not return a key ARN in the expected account and region."
+            exit 1
+          fi
+
+          printf 'key_arn=%s\n' "$key_arn" >> "$GITHUB_OUTPUT"
+
       - name: Initialise the production backend
         env:
-          STATE_KMS_KEY_ARN: ${{ secrets.PAGERDUTY_STATE_KMS_KEY_ARN }}
+          STATE_KMS_KEY_ARN: ${{ steps.state_kms.outputs.key_arn }}
         run: |
           terraform init -input=false -lockfile=readonly \
             -backend-config="kms_key_id=$STATE_KMS_KEY_ARN"
