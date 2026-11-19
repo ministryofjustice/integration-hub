@@ -8,7 +8,8 @@ from unittest.mock import patch
 from common import writer
 from common.aws import CLEAN_BUCKET, INCOMING_BUCKET
 from common.checks import lifecycle_expiry_days, verify_retention_lifecycle
-from unit.support import hosted, sftp
+from common.routes import s3_route
+from unit.support import hosted
 
 SOURCE = {"bucket": CLEAN_BUCKET, "key": "k", "versionId": "v1", "sizeBytes": 3}
 
@@ -70,7 +71,7 @@ class DuplicateActionTests(unittest.TestCase):
         return calls, output.getvalue()
 
     def test_one_request_is_sent_twice_and_nothing_extra_is_written(self):
-        for route in (sftp(), hosted()):
+        for route in (s3_route(), hosted()):
             with self.subTest(route=route.name):
                 calls, output = self.run_test(route, ["version:A", "version:B", "version:B"])
                 self.assertEqual(len(calls), 2)
@@ -81,15 +82,15 @@ class DuplicateActionTests(unittest.TestCase):
 
     def test_a_second_copy_fails(self):
         with self.assertRaisesRegex(RuntimeError, "another destination version"):
-            self.run_test(sftp(), ["version:A", "version:B", "version:C"])
+            self.run_test(s3_route(), ["version:A", "version:B", "version:C"])
 
     def test_a_first_request_that_copies_nothing_fails(self):
         with self.assertRaisesRegex(RuntimeError, "did not create"):
-            self.run_test(sftp(), ["version:A", "version:A"])
+            self.run_test(s3_route(), ["version:A", "version:A"])
 
     def test_a_lost_source_fails(self):
         with self.assertRaisesRegex(RuntimeError, "gone"):
-            self.run_test(sftp(), ["version:A", "version:B", "version:B"], retained=False)
+            self.run_test(s3_route(), ["version:A", "version:B", "version:B"], retained=False)
 
 
 class SourceRetentionTests(unittest.TestCase):
@@ -111,7 +112,7 @@ class RejectionTests(unittest.TestCase):
                 patch("common.writer.account_id", return_value="1"), \
                 patch("common.writer.invoke_writer", side_effect=lambda r, e, *a, **k: events.append((e, k))), \
                 patch("common.writer.list_keys", return_value=set()), redirect_stdout(io.StringIO()):
-            writer.run_rejected_request_test(sftp())
+            writer.run_rejected_request_test(s3_route())
         self.assertEqual(len(events), 2)
         self.assertTrue(all(k["expect_failure"] for _, k in events))
         buckets = [e["detail"]["data"]["object"]["bucket"] for e, _ in events]
@@ -123,7 +124,7 @@ class RejectionTests(unittest.TestCase):
                 patch("common.writer.invoke_writer"), \
                 patch("common.writer.list_keys", return_value={"x"}), redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, "delivered a file"):
-                writer.run_rejected_request_test(sftp())
+                writer.run_rejected_request_test(s3_route())
 
 
 class LifecycleTests(unittest.TestCase):

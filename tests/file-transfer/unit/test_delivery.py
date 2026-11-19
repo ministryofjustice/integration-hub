@@ -10,7 +10,7 @@ from common.fixtures import (
     functional_scenarios, nested_directory_scenarios, smoke_scenarios,
 )
 from common.routes import s3_route
-from unit.support import FakeS3, FakeS3TestCase, hosted, option, presigned, sftp
+from unit.support import FakeS3, FakeS3TestCase, hosted, option, presigned
 
 
 def quiet(function, *args, **kwargs):
@@ -125,13 +125,12 @@ class RouteSpecificDeliveryTests(unittest.TestCase):
         return s3, token, output
 
     def test_metadata_checks_are_refused_where_they_cannot_apply(self):
-        for route in (sftp(), presigned()):
-            with self.subTest(route=route.name):
-                s3 = FakeS3(route)
-                with patch("common.delivery.aws_s3", side_effect=s3):
-                    with self.assertRaisesRegex(ValueError, "cannot verify object metadata"):
-                        delivery.run_delivery_test(route, "L2", functional_scenarios, verify_metadata=True)
-                self.assertEqual(s3.calls, [])
+        route = presigned()
+        s3 = FakeS3(route)
+        with patch("common.delivery.aws_s3", side_effect=s3):
+            with self.assertRaisesRegex(ValueError, "cannot verify object metadata"):
+                delivery.run_delivery_test(route, "L2", functional_scenarios, verify_metadata=True)
+        self.assertEqual(s3.calls, [])
 
     def test_hosted_pickup_verifies_metadata_in_its_own_bucket(self):
         route = hosted()
@@ -140,18 +139,13 @@ class RouteSpecificDeliveryTests(unittest.TestCase):
         readers = {bucket for operation, bucket in s3.calls if operation != "put-object"}
         self.assertEqual(readers, {"hosted-test-bucket"})
 
-    def test_sftp_is_read_from_the_sftp_bucket_only(self):
-        s3, _, _ = self.run_delivery(sftp(), smoke_scenarios)
-        readers = {bucket for operation, bucket in s3.calls if operation != "put-object"}
-        self.assertEqual(readers, {"sftp-test-bucket"})
-
     def test_nested_directories_keep_their_relative_path(self):
         s3, token, output = self.run_delivery(
-            sftp(), lambda t: functional_scenarios(t) + nested_directory_scenarios(t)
+            hosted(), lambda t: functional_scenarios(t) + nested_directory_scenarios(t)
         )
         self.assertIn("PASS: all 6 file-transfer scenarios completed.", output)
-        self.assertIn(f"push-to-sftp/{token}/nested/deeper/payload.txt", s3.objects)
-        self.assertIn(f"push-to-sftp/{token}/folder with spaces/(1) + copy/special-payload.txt", s3.objects)
+        self.assertIn(f"pickup/{token}/nested/deeper/payload.txt", s3.objects)
+        self.assertIn(f"pickup/{token}/folder with spaces/(1) + copy/special-payload.txt", s3.objects)
 
 
 class ConcurrentDeliveryTests(unittest.TestCase):
@@ -179,14 +173,14 @@ class ConcurrentDeliveryTests(unittest.TestCase):
         return s3, output
 
     def test_uploads_overlap_and_every_file_arrives_independently(self):
-        for route in (s3_route(), sftp(), hosted(), presigned()):
+        for route in (s3_route(), hosted(), presigned()):
             with self.subTest(route=route.name):
                 s3, output = self.run_concurrent(route, 3)
                 self.assertEqual(len(s3.objects), 3)
                 self.assertIn("PASS: all 3 concurrent files arrived independently.", output)
 
     def test_a_file_never_delivered_is_not_hidden_by_the_others(self):
-        route = sftp()
+        route = s3_route()
         s3 = self.ConcurrentS3(route, 3)
         original = s3._deliver
 
@@ -203,7 +197,7 @@ class ConcurrentDeliveryTests(unittest.TestCase):
 
 
 class OverwriteTests(FakeS3TestCase):
-    route_factory = staticmethod(sftp)
+    route_factory = staticmethod(hosted)
 
     def test_same_size_replacement_overwrites_and_leaves_nothing_behind(self):
         _, output = quiet(delivery.run_overwrite_test, self.route, timeout_seconds=30, poll_seconds=1)

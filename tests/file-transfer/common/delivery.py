@@ -280,9 +280,9 @@ def wait_for_destination_contents(route, destination_key, expected, deadline, po
 def run_overwrite_test(route, timeout_seconds=300, poll_seconds=5):
     """Deliver a file, then deliver different bytes of the same size to the same path.
 
-    Equal sizes matter because the SFTP writer checks the byte count before it
-    renames the temporary file over the destination. The destination must end up
-    with the replacement bytes and no leftover temporary objects.
+    Equal sizes ensure a size-only comparison cannot mistake the original for
+    the replacement. The destination must end up with the replacement bytes
+    and no leftover temporary objects.
     """
     _check_timing(timeout_seconds, poll_seconds)
     if route.recipient_id:

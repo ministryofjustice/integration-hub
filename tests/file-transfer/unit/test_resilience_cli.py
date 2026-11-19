@@ -5,8 +5,7 @@ from unittest.mock import patch
 
 from push_to_s3 import resilience as s3_resilience
 from push_to_s3_with_hosted_pickup import resilience as hosted_resilience
-from push_to_sftp import resilience as sftp_resilience
-from unit.support import HOSTED_ENVIRONMENT, SFTP_ENVIRONMENT
+from unit.support import HOSTED_ENVIRONMENT
 
 
 def names(mocks):
@@ -32,7 +31,7 @@ class ResilienceWiringTests(unittest.TestCase):
 
     def test_rejection_checks_are_opt_in_for_writer_routes(self):
         for module, environment in (
-            (s3_resilience, {}), (sftp_resilience, SFTP_ENVIRONMENT), (hosted_resilience, HOSTED_ENVIRONMENT),
+            (s3_resilience, {}), (hosted_resilience, HOSTED_ENVIRONMENT),
         ):
             with self.subTest(module=module.__name__):
                 result, mocks = self.run_cli(module, environment)
@@ -42,11 +41,11 @@ class ResilienceWiringTests(unittest.TestCase):
                 self.assertTrue(mocks["rejection"].called)
 
     def test_a_failing_check_stops_the_run_with_a_failure_code(self):
-        with patch.dict("os.environ", SFTP_ENVIRONMENT, clear=True), \
+        with patch.dict("os.environ", {}, clear=True), \
                 patch("common.resilience.run_concurrent_delivery_test", side_effect=RuntimeError("boom")), \
                 patch("common.resilience.run_duplicate_action_test") as duplicate, \
                 redirect_stderr(io.StringIO()):
-            self.assertEqual(sftp_resilience.main([]), 1)
+            self.assertEqual(s3_resilience.main([]), 1)
         duplicate.assert_not_called()
 
 

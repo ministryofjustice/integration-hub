@@ -3,8 +3,8 @@ import unittest
 from common import routes
 from common.routes import select_route
 from unit.support import (
-    HOSTED_ENVIRONMENT, PRESIGNED_ENVIRONMENT, SFTP_ENVIRONMENT,
-    hosted, presigned, sftp,
+    HOSTED_ENVIRONMENT, PRESIGNED_ENVIRONMENT,
+    hosted, presigned,
 )
 
 
@@ -13,7 +13,6 @@ class RouteConfigurationTests(unittest.TestCase):
         environments = {
             "push-to-s3": {},
             "push-to-s3-with-hosted-pickup": HOSTED_ENVIRONMENT,
-            "push-to-sftp": SFTP_ENVIRONMENT,
             "pull-from-presigned-url": PRESIGNED_ENVIRONMENT,
         }
         self.assertEqual(set(environments), set(routes.ROUTE_NAMES))
@@ -21,13 +20,13 @@ class RouteConfigurationTests(unittest.TestCase):
             self.assertEqual(select_route(name, environment).name, name)
 
     def test_unknown_route_fails(self):
-        with self.assertRaisesRegex(ValueError, "Unknown route"):
-            select_route("push-to-nowhere")
+        for name in ("push-to-nowhere", "push-to-sftp"):
+            with self.subTest(route=name), self.assertRaisesRegex(ValueError, "Unknown route"):
+                select_route(name)
 
     def test_unconfigured_routes_name_the_missing_variable_and_never_guess(self):
         cases = {
             "push-to-s3-with-hosted-pickup": routes.HOSTED_BUCKET_VARIABLE,
-            "push-to-sftp": routes.SFTP_BUCKET_VARIABLE,
             "pull-from-presigned-url": routes.PRESIGNED_RECIPIENT_VARIABLE,
         }
         for name, variable in cases.items():
@@ -37,16 +36,16 @@ class RouteConfigurationTests(unittest.TestCase):
                         select_route(name, environment)
 
     def test_routes_are_isolated_from_each_other(self):
-        all_routes = [select_route("push-to-s3"), hosted(), sftp(), presigned()]
-        self.assertEqual(len({r.incoming_prefix for r in all_routes}), 4)
-        self.assertEqual(len({r.dispatch_secret_name for r in all_routes}), 4)
-        self.assertEqual(len({r.destination_bucket for r in all_routes}), 4)
+        all_routes = [select_route("push-to-s3"), hosted(), presigned()]
+        self.assertEqual(len({r.incoming_prefix for r in all_routes}), 3)
+        self.assertEqual(len({r.dispatch_secret_name for r in all_routes}), 3)
+        self.assertEqual(len({r.destination_bucket for r in all_routes}), 3)
 
 
 class FindDeliveryTests(unittest.TestCase):
     def test_direct_routes_match_only_the_exact_key(self):
-        route = sftp()
-        key = "push-to-sftp/run/file.bin"
+        route = select_route("push-to-s3")
+        key = "push-to-s3/run/file.bin"
         self.assertEqual(route.find_delivery({key + ".part", key + ".old"}, "run/file.bin"), None)
         self.assertEqual(route.find_delivery({key}, "run/file.bin"), key)
 

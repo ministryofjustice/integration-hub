@@ -6,10 +6,9 @@ from unittest.mock import patch
 from urllib.parse import quote
 
 from common.aws import INCOMING_BUCKET
-from common.routes import hosted_pickup_route, presigned_route, s3_route, sftp_route
+from common.routes import hosted_pickup_route, presigned_route, s3_route
 
 HOSTED_ENVIRONMENT = {"FILE_TRANSFER_HOSTED_PICKUP_BUCKET": "hosted-test-bucket"}
-SFTP_ENVIRONMENT = {"FILE_TRANSFER_SFTP_DESTINATION_BUCKET": "sftp-test-bucket"}
 PRESIGNED_ENVIRONMENT = {
     "FILE_TRANSFER_PRESIGNED_PICKUP_BUCKET": "pickup-test-bucket",
     "FILE_TRANSFER_PRESIGNED_RECIPIENT_ID": "test-recipient",
@@ -19,10 +18,6 @@ PRESIGNED_ENVIRONMENT = {
 
 def hosted():
     return hosted_pickup_route(HOSTED_ENVIRONMENT)
-
-
-def sftp():
-    return sftp_route(SFTP_ENVIRONMENT)
 
 
 def presigned(**extra):

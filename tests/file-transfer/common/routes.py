@@ -8,12 +8,10 @@ PICKUP_ID = "[0-9a-f]{64}"
 
 PUSH_TO_S3 = "push-to-s3"
 PUSH_TO_S3_WITH_HOSTED_PICKUP = "push-to-s3-with-hosted-pickup"
-PUSH_TO_SFTP = "push-to-sftp"
 PULL_FROM_PRESIGNED_URL = "pull-from-presigned-url"
 ROUTE_NAMES = (
     PUSH_TO_S3,
     PUSH_TO_S3_WITH_HOSTED_PICKUP,
-    PUSH_TO_SFTP,
     PULL_FROM_PRESIGNED_URL,
 )
 
@@ -24,8 +22,6 @@ HOSTED_BUCKET_VARIABLE = "FILE_TRANSFER_HOSTED_PICKUP_BUCKET"
 HOSTED_INCOMING_PREFIX_VARIABLE = "FILE_TRANSFER_HOSTED_PICKUP_INCOMING_PREFIX"
 HOSTED_DESTINATION_PREFIX_VARIABLE = "FILE_TRANSFER_HOSTED_PICKUP_DESTINATION_PREFIX"
 HOSTED_RETENTION_DAYS_VARIABLE = "FILE_TRANSFER_HOSTED_PICKUP_RETENTION_DAYS"
-SFTP_BUCKET_VARIABLE = "FILE_TRANSFER_SFTP_DESTINATION_BUCKET"
-SFTP_DESTINATION_PREFIX_VARIABLE = "FILE_TRANSFER_SFTP_DESTINATION_PREFIX"
 PRESIGNED_BUCKET_VARIABLE = "FILE_TRANSFER_PRESIGNED_PICKUP_BUCKET"
 PRESIGNED_RECIPIENT_VARIABLE = "FILE_TRANSFER_PRESIGNED_RECIPIENT_ID"
 PRESIGNED_INCOMING_PREFIX_VARIABLE = "FILE_TRANSFER_PRESIGNED_INCOMING_PREFIX"
@@ -35,8 +31,7 @@ PRESIGNED_INCOMING_PREFIX_VARIABLE = "FILE_TRANSFER_PRESIGNED_INCOMING_PREFIX"
 class Route:
     """Everything the tests need to know about one clean-file delivery pattern.
 
-    Deliveries are always read back through S3. For push-to-sftp that means the
-    test SFTP server must store its files in a bucket the harness role can read.
+    Deliveries are always observed in S3.
     A route with a recipient_id is a hosted pickup bucket: the service chooses a
     per-execution directory, so the destination key cannot be known in advance.
     """
@@ -140,21 +135,6 @@ def hosted_pickup_route(environ=None):
     )
 
 
-def sftp_route(environ=None):
-    environ = os.environ if environ is None else environ
-    return Route(
-        name=PUSH_TO_SFTP,
-        label="SFTP delivery to the test server",
-        incoming_prefix="test-harness/push-to-sftp/",
-        destination_bucket=_required(
-            environ, SFTP_BUCKET_VARIABLE, "the S3 bucket that holds the test SFTP server's files"
-        ),
-        destination_prefix=_prefix(environ, SFTP_DESTINATION_PREFIX_VARIABLE, "push-to-sftp/"),
-        writer_function_name=WRITER_BASE + PUSH_TO_SFTP,
-        writer_queue_name=WRITER_BASE + PUSH_TO_SFTP,
-    )
-
-
 def presigned_route(environ=None):
     environ = os.environ if environ is None else environ
     recipient = _required(environ, PRESIGNED_RECIPIENT_VARIABLE, "the pickup recipient ID")
@@ -179,7 +159,6 @@ def presigned_route(environ=None):
 ROUTE_FACTORIES = {
     PUSH_TO_S3: s3_route,
     PUSH_TO_S3_WITH_HOSTED_PICKUP: hosted_pickup_route,
-    PUSH_TO_SFTP: sftp_route,
     PULL_FROM_PRESIGNED_URL: presigned_route,
 }
 
