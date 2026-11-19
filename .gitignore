@@ -10,7 +10,7 @@ env/
 terraform.tfstate
 artifact.tar
 docs/
-
+eicar.txt
 
 # APM dependencies
 apm_modules/
