@@ -27,8 +27,9 @@ direct-to-S3 `push-to-s3` route in the test account and arrive unchanged.
   sequential delivery for three 1 MiB files and one 16 MiB file. Results are
   informational; no performance threshold is enforced.
 
-The workflow's default L1-L3 checks cover the direct-to-S3 route only. They do not test
-other upload routes, SQS retries, DLQ replay, or negative cases.
+The workflow runs the L1-L3 direct-to-S3 checks and both routing checks on each
+live test run. It does not test other upload routes, SQS retries, DLQ replay, or
+negative cases.
 
 ## Run local unit tests
 
@@ -48,19 +49,15 @@ environment and delivery infrastructure are ready before running; tests upload
 synthetic files to AWS.
 
 To run manually, open **Actions > File Transfer Tests > Run workflow** in
-GitHub and select an authorised branch. The workflow runs L1, L2, and L3 after
-its local unit tests pass. It also runs automatically when called by the
-Modernisation Platform Environments workflow after a successful test
-deployment.
+GitHub and select an authorised branch. The workflow runs L1, L2, L3, and both
+routing checks after its local unit tests pass. It also runs automatically when
+called by the Modernisation Platform Environments workflow after a successful
+test deployment.
 
-### Run the routing checks on GitHub
-
-Select **Run the live investigation and quarantine checks** when manually
-dispatching **File Transfer Tests**. These checks are off by default and run
-only against the test account. The selected branch must contain the test scripts
-and approved `test-document.pdf` fixture. The quarantine check uses `eicar.txt`
-if present, or downloads the fixture with `curl`. The EICAR fixture can trigger
-malware alerts.
+The routing checks run only against the test account. The selected branch must
+contain the test scripts and approved `test-document.pdf` fixture. The quarantine
+check uses `eicar.txt` if present, or downloads the fixture with `curl`. The
+EICAR fixture can trigger malware alerts.
 
 The harness role needs permission to upload under `test-harness/investigation/`
 and `test-harness/quarantine/` in the incoming bucket and list the clean,
