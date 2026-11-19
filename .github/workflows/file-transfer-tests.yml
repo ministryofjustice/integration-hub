@@ -300,6 +300,12 @@ jobs:
             echo "Scope: concurrent delivery and duplicate action idempotency only; SQS retry, DLQ/replay, tenant isolation, and alerting are not included."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: L2 investigation - verify inconclusive GuardDuty scans route files to investigation
+        run: python3 -B tests/file-transfer/investigation_test.py --environment test
+
+      - name: L2 quarantine - verify files flagged as malware by GuardDuty reach quarantine
+        run: python3 -B tests/file-transfer/quarantine_test.py --environment test
+
       - name: L4 non-functional - measure bounded delivery baselines
         id: l4_performance
         if: github.event_name == 'workflow_dispatch' && inputs.run_l4
