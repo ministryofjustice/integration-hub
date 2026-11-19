@@ -19,12 +19,9 @@ integrations, escalation policies, schedules or Slack connections.
 Confirm the PagerDuty account before running a plan. Team assignment is
 optional; set `pagerduty_team_id` to assign the services to a team.
 
-The workflow needs these repository secrets in Integration Hub:
-
-- `PAGERDUTY_AWS_ROLE_ARN`: the production role ARN, ending in
-  `role/github-actions/integration-hub-pagerduty`.
-- `PAGERDUTY_STATE_KMS_KEY_ARN`: the full ARN of the state encryption key,
-  not the key used for the API token.
+Set the `PRODUCTION_ACCOUNT_ID` repository secret in Integration Hub to the
+12-digit production AWS account ID. The workflow uses OIDC to assume the
+existing `role/github-actions/integration-hub-pagerduty` role in that account.
 
 The API token is stored in `pagerduty/api-key` in AWS Secrets Manager.
 When replacing it, an authorised person should store just the token on one
@@ -53,5 +50,8 @@ duplicates. Applying changes needs separate approval.
 
 State uses `pagerduty/terraform.tfstate` in the
 `integration-hub-production-pagerduty-tfstate` bucket in `eu-west-2`.
-Use the default workspace. The backend uses KMS encryption and S3 locking;
-the workflow supplies the state key ARN when it initialises Terraform.
+Use the default workspace. The backend uses KMS encryption and S3 locking.
+The backend uses `alias/s3/integration-hub-production-pagerduty-tfstate`
+directly as its KMS key identifier. The alias must point to the existing state
+key in the production account in `eu-west-2`. This is not the key used for
+the API token. No separate KMS lookup or `kms:DescribeKey` permission is needed.
