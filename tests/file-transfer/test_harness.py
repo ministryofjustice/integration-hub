@@ -211,6 +211,61 @@ class HarnessTests(unittest.TestCase):
         """Move the simulated clock forward so timeout tests need no real waiting."""
         self.elapsed += seconds
 
+    def mock_terminal_listing(self, keys_at_time):
+        poll_times = []
+
+        def fake_s3(operation, *arguments, timeout):
+            if operation == "put-object":
+                return {}
+            self.assertEqual(operation, "list-objects-v2")
+            bucket = arguments[arguments.index("--bucket") + 1]
+            if bucket != "integration-hub-file-transfer-test-investigation":
+                return {}
+            key = arguments[arguments.index("--prefix") + 1]
+            poll_times.append(self.elapsed)
+            return {"Contents": [{"Key": item} for item in keys_at_time(key, self.elapsed)]}
+
+        self.aws.side_effect = fake_s3
+        return poll_times
+
+    def test_terminal_routing_waits_for_exact_key_after_first_poll(self):
+        poll_times = self.mock_terminal_listing(
+            lambda key, elapsed: [key] if elapsed >= 1 else [key + ".bak"]
+        )
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(output):
+            fixture = Path(directory) / "fixture.txt"
+            fixture.write_text("mock routing fixture")
+            harness.run_terminal_routing_test(
+                "test", fixture, "investigation", "text/plain", timeout_seconds=2, poll_seconds=1,
+            )
+
+        self.assertEqual(poll_times, [0, 1])
+        self.assertEqual(self.elapsed, 1)
+        self.assertIn("PASS: fixture arrived", output.getvalue())
+
+    def test_terminal_routing_times_out_without_exact_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "fixture.txt"
+            fixture.write_text("mock routing fixture")
+            for listing in ("empty", "similar key only"):
+                with self.subTest(listing=listing):
+                    self.elapsed = 0
+                    poll_times = self.mock_terminal_listing(
+                        lambda key, elapsed: [key + ".bak"] if listing == "similar key only" else []
+                    )
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(TimeoutError, "Timed out waiting for .*investigation"):
+                            harness.run_terminal_routing_test(
+                                "test", fixture, "investigation", "text/plain",
+                                timeout_seconds=2, poll_seconds=1,
+                            )
+
+                    self.assertEqual(poll_times, [0, 1])
+                    self.assertEqual(self.elapsed, 2)
+                    self.assertNotIn("PASS:", output.getvalue())
+
     def test_duplicate_action_request_has_stable_idempotency_key(self):
         """Check that the request's duplicate-detection key uses its action ID.
 

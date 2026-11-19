@@ -6,8 +6,9 @@ direct-to-S3 `push-to-s3` route in the test account and arrive unchanged.
 ## Test coverage
 
 - **Local unit tests** ([test_harness.py](test_harness.py)) mock AWS and polling
-  to check the shared test harness, scenarios, and failure handling. They need
-  no AWS credentials.
+  to check the shared test harness, scenarios, and failure handling. This
+  includes retrying terminal-bucket lookups and timing out if only a similar
+  object key appears. They need no AWS credentials.
 - **L1 smoke** ([smoke_test.py](smoke_test.py)) uploads one small text file and
   verifies its delivery.
 - **L2 functional** ([functional_test.py](functional_test.py)) checks delivery
