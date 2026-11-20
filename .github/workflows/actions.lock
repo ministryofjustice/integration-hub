@@ -19,7 +19,12 @@ workflows:
         - 'aws-actions/configure-aws-credentials@v6.3.0'
         - 'ministryofjustice/modernisation-platform-github-actions@v6.3.0'
         - 'step-security/harden-runner@v2.22.4'
-    '.github/workflows/pagerduty-terraform.yml':
+    '.github/workflows/pagerduty-apply.yml':
+        - 'actions/checkout@v7.0.1'
+        - 'aws-actions/configure-aws-credentials@v6.3.0'
+        - 'hashicorp/setup-terraform@v4.0.1'
+        - 'step-security/harden-runner@v2.22.4'
+    '.github/workflows/pagerduty-plan.yml':
         - 'actions/checkout@v7.0.1'
         - 'aws-actions/configure-aws-credentials@v6.3.0'
         - 'hashicorp/setup-terraform@v4.0.1'

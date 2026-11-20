@@ -1,5 +1,5 @@
 ---
-name: PagerDuty Terraform
+name: PagerDuty Terraform plan
 
 on:
   pull_request:
@@ -7,8 +7,8 @@ on:
       - main
     paths:
       - "terraform/pagerduty/**"
-      - ".github/workflows/pagerduty-terraform.yml"
-  workflow_dispatch:
+      - ".github/workflows/pagerduty-plan.yml"
+      - ".github/workflows/pagerduty-apply.yml"
 
 permissions: {}
 
@@ -62,15 +62,14 @@ jobs:
     needs: validate
     if: >-
       github.repository == 'ministryofjustice/integration-hub' &&
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main'
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
     concurrency:
-      group: pagerduty-terraform-production
+      group: pagerduty-terraform-plan-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     env:
       TF_WORKSPACE: default
@@ -121,6 +120,5 @@ jobs:
           fi
 
           printf '::add-mask::%s\n' "${token//%/%25}"
-
           TF_VAR_pagerduty_token="$token" \
             terraform plan -input=false -no-color -lock-timeout=5m
