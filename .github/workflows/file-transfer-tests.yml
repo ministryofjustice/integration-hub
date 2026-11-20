@@ -318,10 +318,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: L2 investigation - verify inconclusive GuardDuty scans route files to investigation
-        run: python3 -B tests/file-transfer/investigation_test.py --environment test
+        run: python3 -B -m lifecycle.investigation --environment test
 
       - name: L2 quarantine - verify files flagged as malware by GuardDuty reach quarantine
-        run: python3 -B tests/file-transfer/quarantine_test.py --environment test
+        run: python3 -B -m lifecycle.quarantine --environment test
 
       - name: Hosted pickup L1-L3 - verify delivery to the hosted pickup bucket
         id: hosted_pickup_tests

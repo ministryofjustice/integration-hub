@@ -7,41 +7,38 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-import investigation_test
-import quarantine_test
-from common import delivery
+from common import routing
+from lifecycle import investigation as investigation_test
+from lifecycle import quarantine as quarantine_test
 
 
 class InvestigationTests(unittest.TestCase):
     def run_with_routing(self, area):
         uploaded = {}
-        with tempfile.TemporaryDirectory() as directory:
-            fixture = Path(directory) / "test-document.pdf"
-            fixture.write_bytes(b"%PDF-1.4\nmock routing fixture")
+        fixture = investigation_test.FIXTURE
 
-            def fake_s3(operation, *arguments, timeout):
-                bucket = arguments[arguments.index("--bucket") + 1]
-                self.assertGreater(timeout, 0)
-                self.assertTrue(bucket.startswith("integration-hub-file-transfer-development-"))
-                if operation == "put-object":
-                    self.assertTrue(bucket.endswith("-incoming"))
-                    self.assertEqual(Path(arguments[arguments.index("--body") + 1]), fixture)
-                    uploaded["key"] = arguments[arguments.index("--key") + 1]
-                    self.assertRegex(
-                        uploaded["key"],
-                        r"\Atest-harness/investigation/[0-9a-f]{32}/test-document\.pdf\Z",
-                    )
-                    return {}
-                self.assertEqual(operation, "list-objects-v2")
-                key = arguments[arguments.index("--prefix") + 1]
-                self.assertEqual(key, uploaded["key"])
-                return {"Contents": [{"Key": key if bucket.endswith("-" + area) else key + ".bak"}]}
+        def fake_s3(operation, *arguments, timeout):
+            bucket = arguments[arguments.index("--bucket") + 1]
+            self.assertGreater(timeout, 0)
+            self.assertTrue(bucket.startswith("integration-hub-file-transfer-development-"))
+            if operation == "put-object":
+                self.assertTrue(bucket.endswith("-incoming"))
+                self.assertEqual(Path(arguments[arguments.index("--body") + 1]), fixture)
+                uploaded["key"] = arguments[arguments.index("--key") + 1]
+                self.assertRegex(
+                    uploaded["key"],
+                    r"\Atest-harness/investigation/[0-9a-f]{32}/test-document\.pdf\Z",
+                )
+                return {}
+            self.assertEqual(operation, "list-objects-v2")
+            key = arguments[arguments.index("--prefix") + 1]
+            self.assertEqual(key, uploaded["key"])
+            return {"Contents": [{"Key": key if bucket.endswith("-" + area) else key + ".bak"}]}
 
-            stderr = io.StringIO()
-            with patch.object(investigation_test, "FIXTURE", fixture), \
-                 patch.object(delivery, "aws_s3", side_effect=fake_s3), \
-                 redirect_stdout(io.StringIO()), redirect_stderr(stderr):
-                status = investigation_test.main(["--environment", "development"])
+        stderr = io.StringIO()
+        with patch.object(routing, "aws_s3", side_effect=fake_s3), \
+             redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+            status = investigation_test.main(["--environment", "development"])
         return status, stderr.getvalue()
 
     def test_investigation_accepts_exact_key(self):
@@ -91,7 +88,7 @@ class QuarantineTests(unittest.TestCase):
         with patch.object(quarantine_test, "LOCAL_EICAR_FIXTURE", local_fixture), \
              patch.object(quarantine_test.subprocess, "run", side_effect=fake_curl) as curl, \
              patch.object(quarantine_test, "EICAR_SHA256", hashlib.sha256(fixture_bytes).hexdigest()), \
-             patch.object(delivery, "aws_s3", side_effect=fake_s3) as s3, \
+             patch.object(routing, "aws_s3", side_effect=fake_s3) as s3, \
              redirect_stdout(io.StringIO()), redirect_stderr(stderr):
             status = quarantine_test.main(["--environment", "development"])
         if local_contents == fixture_bytes:
@@ -141,13 +138,13 @@ class QuarantineTests(unittest.TestCase):
 class TerminalRoutingTests(unittest.TestCase):
     def setUp(self):
         self.elapsed = 0
-        aws_patch = patch.object(delivery, "aws_s3")
+        aws_patch = patch.object(routing, "aws_s3")
         self.aws = aws_patch.start()
         self.addCleanup(aws_patch.stop)
-        clock_patch = patch.object(delivery.time, "monotonic", side_effect=lambda: self.elapsed)
+        clock_patch = patch.object(routing.time, "monotonic", side_effect=lambda: self.elapsed)
         clock_patch.start()
         self.addCleanup(clock_patch.stop)
-        sleep_patch = patch.object(delivery.time, "sleep", side_effect=self.advance_time)
+        sleep_patch = patch.object(routing.time, "sleep", side_effect=self.advance_time)
         sleep_patch.start()
         self.addCleanup(sleep_patch.stop)
 
@@ -179,7 +176,7 @@ class TerminalRoutingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, redirect_stdout(output):
             fixture = Path(directory) / "fixture.txt"
             fixture.write_text("mock routing fixture")
-            delivery.run_terminal_routing_test(
+            routing.run_terminal_routing_test(
                 "test", fixture, "investigation", "text/plain", timeout_seconds=2, poll_seconds=1,
             )
 
@@ -200,7 +197,7 @@ class TerminalRoutingTests(unittest.TestCase):
                     output = io.StringIO()
                     with redirect_stdout(output):
                         with self.assertRaisesRegex(TimeoutError, "Timed out waiting for .*investigation"):
-                            delivery.run_terminal_routing_test(
+                            routing.run_terminal_routing_test(
                                 "test", fixture, "investigation", "text/plain",
                                 timeout_seconds=2, poll_seconds=1,
                             )
