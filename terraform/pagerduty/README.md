@@ -47,7 +47,13 @@ token can write, PR code has that capability even though the job runs only
 The [apply workflow](../../.github/workflows/pagerduty-apply.yml) runs on
 matching pushes to `main`, including the merge that introduces the workflow.
 It validates, creates a fresh production plan and applies that saved plan in
-the same job. The apply job must not use a GitHub environment: that
+the same job. Immediately before apply, it checks the current `main` commit.
+If `main` has moved, the run skips apply and records why in its summary. If
+the check fails, the job fails without applying. An unrelated push can also
+make a run stale without triggering a replacement; check the run summary
+before assuming a change was deployed.
+
+The apply job must not use a GitHub environment: that
 changes the OIDC subject and the role will not trust it. Keep `main` protected.
 
 Check for existing business services before merging to avoid creating

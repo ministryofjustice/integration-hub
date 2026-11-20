@@ -126,5 +126,20 @@ jobs:
           TF_VAR_pagerduty_token="$token" \
             terraform plan -input=false -no-color -lock-timeout=5m -out=pagerduty.tfplan
 
+          if ! main_ref="$(git ls-remote --exit-code origin refs/heads/main)"; then
+            echo "::error::Cannot verify the current main revision; refusing to apply."
+            exit 1
+          fi
+          if [[ ! "$main_ref" =~ ^([0-9a-f]{40})[[:blank:]]refs/heads/main$ ]]; then
+            echo "::error::Unexpected main ref response; refusing to apply."
+            exit 1
+          fi
+          main_sha="${BASH_REMATCH[1]}"
+          if [[ "$GITHUB_SHA" != "$main_sha" ]]; then
+            echo "::notice::Apply skipped: this run is for $GITHUB_SHA; main is now $main_sha."
+            echo "Apply skipped: this run is no longer at the tip of main." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           TF_VAR_pagerduty_token="$token" \
             terraform apply -input=false -no-color -lock-timeout=5m pagerduty.tfplan
