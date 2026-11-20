@@ -27,7 +27,7 @@ on:
         required: false
         default: false
       run_hosted_pickup:
-        description: "Run the push-to-s3-with-hosted-pickup L1-L3 tests (needs FILE_TRANSFER_HOSTED_PICKUP_BUCKET and a test-harness dispatch entry)"
+        description: "Run hosted-pickup L1-L3 tests using the MP test-harness configuration"
         type: boolean
         required: false
         default: false
@@ -37,7 +37,7 @@ on:
         required: false
         default: false
       run_presigned:
-        description: "Run the pull-from-presigned-url access-control checks (needs the FILE_TRANSFER_PRESIGNED_* variables)"
+        description: "Run presigned-pickup access-control checks using the MP test-harness configuration"
         type: boolean
         required: false
         default: false
@@ -327,20 +327,10 @@ jobs:
         id: hosted_pickup_tests
         if: github.event_name == 'workflow_dispatch' && inputs.run_hosted_pickup
         env:
-          FILE_TRANSFER_HOSTED_PICKUP_BUCKET: ${{ vars.FILE_TRANSFER_HOSTED_PICKUP_BUCKET }}
-          FILE_TRANSFER_HOSTED_PICKUP_INCOMING_PREFIX: ${{ vars.FILE_TRANSFER_HOSTED_PICKUP_INCOMING_PREFIX }}
-          FILE_TRANSFER_HOSTED_PICKUP_DESTINATION_PREFIX: ${{ vars.FILE_TRANSFER_HOSTED_PICKUP_DESTINATION_PREFIX }}
-          FILE_TRANSFER_HOSTED_PICKUP_RETENTION_DAYS: ${{ vars.FILE_TRANSFER_HOSTED_PICKUP_RETENTION_DAYS }}
           RUN_REJECTION_CHECK: ${{ inputs.run_hosted_pickup_rejection_check }}
         shell: bash
         run: |
           set -euo pipefail
-          for name in INCOMING_PREFIX DESTINATION_PREFIX RETENTION_DAYS; do
-            variable="FILE_TRANSFER_HOSTED_PICKUP_${name}"
-            if [[ -z "${!variable}" ]]; then
-              unset "$variable"
-            fi
-          done
           python3 -B -m push_to_s3_with_hosted_pickup.smoke
           python3 -B -m push_to_s3_with_hosted_pickup.functional
           rejection=()
@@ -373,17 +363,12 @@ jobs:
                 ;;
             esac
             echo ""
-            echo "Scope: delivery is read back from FILE_TRANSFER_HOSTED_PICKUP_BUCKET. The retention check is skipped unless FILE_TRANSFER_HOSTED_PICKUP_RETENTION_DAYS is set. Recipient pickup is not exercised."
+            echo "Scope: delivery is read back from the MP test hosted-pickup bucket, and its one-day lifecycle configuration is checked. Recipient pickup is not exercised."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Presigned pickup - verify the access controls on the retained copy
         id: presigned_tests
         if: github.event_name == 'workflow_dispatch' && inputs.run_presigned
-        env:
-          FILE_TRANSFER_PRESIGNED_PICKUP_BUCKET: ${{ vars.FILE_TRANSFER_PRESIGNED_PICKUP_BUCKET }}
-          FILE_TRANSFER_PRESIGNED_RECIPIENT_ID: ${{ vars.FILE_TRANSFER_PRESIGNED_RECIPIENT_ID }}
-          FILE_TRANSFER_PRESIGNED_INCOMING_PREFIX: ${{ vars.FILE_TRANSFER_PRESIGNED_INCOMING_PREFIX }}
-          FILE_TRANSFER_PRESIGNED_AUTHORISED_GROUP_IDS: ${{ vars.FILE_TRANSFER_PRESIGNED_AUTHORISED_GROUP_IDS }}
         shell: bash
         run: |
           set -euo pipefail

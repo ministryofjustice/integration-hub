@@ -122,9 +122,22 @@ class ExpectedGroupTests(unittest.TestCase):
     def test_groups_are_read_from_the_environment(self):
         self.assertEqual(access.expected_group_ids({access.AUTHORISED_GROUPS_VARIABLE: " a, b ,"}), {"a", "b"})
 
-    def test_a_missing_setting_is_an_error(self):
+    def test_default_groups_are_checked_against_the_test_recipient(self):
+        quiet(
+            access.verify_grants_are_read_only_for_expected_groups,
+            "pickup-bucket", "test-recipient", access.expected_group_ids({}),
+            [grant(group="1622e2b4-9011-7000-b2fc-87228b7308cd")],
+        )
+        with self.assertRaisesRegex(RuntimeError, "differ from the expected groups"):
+            quiet(
+                access.verify_grants_are_read_only_for_expected_groups,
+                "pickup-bucket", "test-recipient", access.expected_group_ids({}),
+                [grant(group="another-group")],
+            )
+
+    def test_an_explicit_empty_setting_is_an_error(self):
         with self.assertRaisesRegex(ValueError, access.AUTHORISED_GROUPS_VARIABLE):
-            access.expected_group_ids({})
+            access.expected_group_ids({access.AUTHORISED_GROUPS_VARIABLE: ""})
 
 
 class AccessControlTestRun(unittest.TestCase):

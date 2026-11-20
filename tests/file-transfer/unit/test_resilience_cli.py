@@ -19,6 +19,7 @@ class ResilienceWiringTests(unittest.TestCase):
             "overwrite": patch("common.resilience.run_overwrite_test"),
             "duplicate": patch("common.resilience.run_duplicate_action_test"),
             "rejection": patch("common.resilience.run_rejected_request_test"),
+            "retention": patch("push_to_s3_with_hosted_pickup.resilience.verify_retention_lifecycle"),
         }
         with patch.dict("os.environ", environment, clear=True):
             mocks = {name: p.start() for name, p in patches.items()}

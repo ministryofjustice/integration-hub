@@ -2,6 +2,8 @@ import os
 import re
 from dataclasses import dataclass
 
+from common.aws import aws_cli
+
 DISPATCH_SECRET_BASE = "integration-hub-file-transfer/file-dispatch/"
 WRITER_BASE = "integration-hub-file-transfer-"
 PICKUP_ID = "[0-9a-f]{64}"
@@ -15,9 +17,7 @@ ROUTE_NAMES = (
     PULL_FROM_PRESIGNED_URL,
 )
 
-# Test-account values that Terraform in this repository does not define yet are
-# supplied through the environment. None of them is guessed: a wrong value would
-# make every delivery look missing.
+# Defaults match MP's test-harness dispatch configuration; local runs may override them.
 HOSTED_BUCKET_VARIABLE = "FILE_TRANSFER_HOSTED_PICKUP_BUCKET"
 HOSTED_INCOMING_PREFIX_VARIABLE = "FILE_TRANSFER_HOSTED_PICKUP_INCOMING_PREFIX"
 HOSTED_DESTINATION_PREFIX_VARIABLE = "FILE_TRANSFER_HOSTED_PICKUP_DESTINATION_PREFIX"
@@ -86,8 +86,8 @@ class Route:
         return matches[0] if matches else None
 
 
-def _required(environ, variable, purpose):
-    value = environ.get(variable, "").strip()
+def _required(environ, variable, purpose, default=""):
+    value = environ.get(variable, default).strip()
     if not value:
         raise ValueError(f"Set {variable} to {purpose}.")
     return value
@@ -115,7 +115,7 @@ def s3_route(environ=None):
 
 def hosted_pickup_route(environ=None):
     environ = os.environ if environ is None else environ
-    retention = environ.get(HOSTED_RETENTION_DAYS_VARIABLE, "").strip()
+    retention = environ.get(HOSTED_RETENTION_DAYS_VARIABLE, "1").strip()
     if retention and (not retention.isdigit() or int(retention) < 1):
         raise ValueError(f"{HOSTED_RETENTION_DAYS_VARIABLE} must be a positive whole number.")
     return Route(
@@ -125,7 +125,8 @@ def hosted_pickup_route(environ=None):
             environ, HOSTED_INCOMING_PREFIX_VARIABLE, "test-harness/hosted-pickup/"
         ),
         destination_bucket=_required(
-            environ, HOSTED_BUCKET_VARIABLE, "the hosted pickup bucket for the test entry"
+            environ, HOSTED_BUCKET_VARIABLE, "the hosted pickup bucket for the test entry",
+            default="integration-hub-test-test-harness-pickup",
         ),
         destination_prefix=_prefix(environ, HOSTED_DESTINATION_PREFIX_VARIABLE, "pickup/"),
         writer_function_name=WRITER_BASE + PUSH_TO_S3_WITH_HOSTED_PICKUP,
@@ -137,20 +138,29 @@ def hosted_pickup_route(environ=None):
 
 def presigned_route(environ=None):
     environ = os.environ if environ is None else environ
-    recipient = _required(environ, PRESIGNED_RECIPIENT_VARIABLE, "the pickup recipient ID")
+    recipient = _required(
+        environ, PRESIGNED_RECIPIENT_VARIABLE, "the pickup recipient ID",
+        default="test-harness-presigned",
+    )
     if "/" in recipient:
         raise ValueError(f"{PRESIGNED_RECIPIENT_VARIABLE} must be a single path segment.")
+    incoming_prefix = _prefix(
+        environ, PRESIGNED_INCOMING_PREFIX_VARIABLE, "test-harness/pull-from-presigned-url/"
+    )
+    if PRESIGNED_BUCKET_VARIABLE in environ:
+        bucket = _required(
+            environ, PRESIGNED_BUCKET_VARIABLE, "the pickup bucket used by the notifier"
+        )
+    else:
+        account = aws_cli("sts", "get-caller-identity").get("Account")
+        if not isinstance(account, str) or not re.fullmatch(r"[0-9]{12}", account):
+            raise RuntimeError("Could not determine a valid AWS account ID for the pickup bucket.")
+        bucket = f"integration-hub-file-transfer-pickup-test-{account}"
     return Route(
         name=PULL_FROM_PRESIGNED_URL,
         label="hosted pickup with portal notification",
-        incoming_prefix=_prefix(
-            environ,
-            PRESIGNED_INCOMING_PREFIX_VARIABLE,
-            _required(environ, PRESIGNED_INCOMING_PREFIX_VARIABLE, "the recipient's dispatch prefix"),
-        ),
-        destination_bucket=_required(
-            environ, PRESIGNED_BUCKET_VARIABLE, "the pickup bucket used by the notifier"
-        ),
+        incoming_prefix=incoming_prefix,
+        destination_bucket=bucket,
         destination_prefix=f"{recipient}/",
         recipient_id=recipient,
     )
@@ -164,7 +174,7 @@ ROUTE_FACTORIES = {
 
 
 def select_route(route_name, environ=None):
-    """Return the named delivery route; unknown or unconfigured routes fail before any AWS call."""
+    """Return a test-account route, resolving the presigned bucket's account ID if needed."""
     try:
         factory = ROUTE_FACTORIES[route_name]
     except KeyError:

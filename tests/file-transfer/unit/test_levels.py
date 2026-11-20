@@ -57,8 +57,11 @@ class PerformanceTests(FakeS3TestCase):
 
 class CliTests(unittest.TestCase):
     def test_configuration_errors_fail_with_a_clear_message_and_no_aws_calls(self):
-        for route_name in ("push-to-s3-with-hosted-pickup", "pull-from-presigned-url"):
-            with self.subTest(route=route_name), patch.dict("os.environ", {}, clear=True), \
+        for route_name, environment in (
+            ("push-to-s3-with-hosted-pickup", {"FILE_TRANSFER_HOSTED_PICKUP_RETENTION_DAYS": "-1"}),
+            ("pull-from-presigned-url", {"FILE_TRANSFER_PRESIGNED_RECIPIENT_ID": "invalid/recipient"}),
+        ):
+            with self.subTest(route=route_name), patch.dict("os.environ", environment, clear=True), \
                     patch("common.delivery.aws_s3") as aws_call, \
                     redirect_stderr(io.StringIO()) as errors:
                 result = levels.run_delivery_cli(route_name, "L1", smoke_scenarios)

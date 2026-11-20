@@ -143,7 +143,7 @@ class LifecycleTests(unittest.TestCase):
 
     def test_retention_check_is_skipped_visibly_without_expected_days(self):
         with patch("common.checks.aws_s3") as aws, redirect_stdout(io.StringIO()) as output:
-            verify_retention_lifecycle(hosted())
+            verify_retention_lifecycle(hosted_with_retention(""))
         aws.assert_not_called()
         self.assertIn("SKIPPED", output.getvalue())
 

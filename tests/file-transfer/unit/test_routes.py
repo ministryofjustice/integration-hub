@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from common import routes
 from common.routes import select_route
@@ -24,13 +25,34 @@ class RouteConfigurationTests(unittest.TestCase):
             with self.subTest(route=name), self.assertRaisesRegex(ValueError, "Unknown route"):
                 select_route(name)
 
-    def test_unconfigured_routes_name_the_missing_variable_and_never_guess(self):
+    def test_pickup_routes_use_test_defaults_without_environment_settings(self):
+        with patch("common.routes.aws_cli", return_value={"Account": "123456789012"}):
+            hosted_route = select_route("push-to-s3-with-hosted-pickup", {})
+            presigned_route = select_route("pull-from-presigned-url", {})
+        self.assertEqual(hosted_route.destination_bucket, "integration-hub-test-test-harness-pickup")
+        self.assertEqual(hosted_route.incoming_prefix, "test-harness/hosted-pickup/")
+        self.assertEqual(hosted_route.retention_days, 1)
+        self.assertEqual(
+            presigned_route.destination_bucket, "integration-hub-file-transfer-pickup-test-123456789012"
+        )
+        self.assertEqual(presigned_route.incoming_prefix, "test-harness/pull-from-presigned-url/")
+        self.assertEqual(presigned_route.destination_prefix, "test-harness-presigned/")
+
+    def test_presigned_account_lookup_errors_are_not_hidden(self):
+        with patch("common.routes.aws_cli", side_effect=RuntimeError("STS failed")):
+            with self.assertRaisesRegex(RuntimeError, "STS failed"):
+                select_route("pull-from-presigned-url", {})
+        with patch("common.routes.aws_cli", return_value={}):
+            with self.assertRaisesRegex(RuntimeError, "account ID"):
+                select_route("pull-from-presigned-url", {})
+
+    def test_explicit_empty_overrides_fail_with_a_clear_message(self):
         cases = {
             "push-to-s3-with-hosted-pickup": routes.HOSTED_BUCKET_VARIABLE,
             "pull-from-presigned-url": routes.PRESIGNED_RECIPIENT_VARIABLE,
         }
         for name, variable in cases.items():
-            for environment in ({}, {variable: "  "}):
+            for environment in ({variable: ""}, {variable: "  "}):
                 with self.subTest(route=name, environment=environment):
                     with self.assertRaisesRegex(ValueError, variable):
                         select_route(name, environment)

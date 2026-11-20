@@ -63,20 +63,29 @@ Route-specific checks:
 
 | Route | Extra checks |
 | --- | --- |
-| `push-to-s3-with-hosted-pickup` | Bucket lifecycle expires the pickup prefix after the expected retention (skipped, and reported as skipped, unless the retention variable is set). |
+| `push-to-s3-with-hosted-pickup` | Bucket lifecycle configuration expires the pickup prefix after the expected retention (one day by default). |
 | `pull-from-presigned-url` | Access control only (`access.py`): the recipient prefix has only READ grants to the expected groups, an anonymous request for the retained file is refused, and the test role cannot read it. |
 
 ## Route configuration
 
-Routes other than `push-to-s3` fail with a clear message, and make no AWS calls,
-when their required variables are missing. Each route also needs a
-`test-harness/<route>/` dispatch entry in the test account, which lives in
-Modernisation Platform Environments; these tests do not create it.
+All routes default to the agreed test-account configuration in Modernisation
+Platform Environments. No additional GitHub route variables are needed. Presigned
+pickup resolves the account ID using STS to construct its shared bucket name;
+lookup failures stop the test. The tests do not create dispatch entries or storage.
 
-| Route | Variables |
+| Route | Defaults |
 | --- | --- |
-| `push-to-s3-with-hosted-pickup` | `FILE_TRANSFER_HOSTED_PICKUP_BUCKET` (required); `..._INCOMING_PREFIX` (default `test-harness/hosted-pickup/`); `..._DESTINATION_PREFIX` (default `pickup/`); `..._RETENTION_DAYS` (optional) |
-| `pull-from-presigned-url` | `FILE_TRANSFER_PRESIGNED_PICKUP_BUCKET`, `..._RECIPIENT_ID`, `..._INCOMING_PREFIX`, `..._AUTHORISED_GROUP_IDS` (comma-separated Identity Center group IDs; all required) |
+| `push-to-s3-with-hosted-pickup` | Bucket `integration-hub-test-test-harness-pickup`; incoming prefix `test-harness/hosted-pickup/`; destination prefix `pickup/`; retention one day |
+| `pull-from-presigned-url` | Bucket `integration-hub-file-transfer-pickup-test-<account-id>`; recipient `test-harness-presigned`; incoming prefix `test-harness/pull-from-presigned-url/`; authorised group `azure-aws-sso-integration-hub` (`1622e2b4-9011-7000-b2fc-87228b7308cd`) |
+
+Local runs may override these using `FILE_TRANSFER_HOSTED_PICKUP_BUCKET`,
+`FILE_TRANSFER_HOSTED_PICKUP_INCOMING_PREFIX`,
+`FILE_TRANSFER_HOSTED_PICKUP_DESTINATION_PREFIX`,
+`FILE_TRANSFER_HOSTED_PICKUP_RETENTION_DAYS`, `FILE_TRANSFER_PRESIGNED_PICKUP_BUCKET`,
+`FILE_TRANSFER_PRESIGNED_RECIPIENT_ID`, `FILE_TRANSFER_PRESIGNED_INCOMING_PREFIX`,
+and `FILE_TRANSFER_PRESIGNED_AUTHORISED_GROUP_IDS` (comma-separated group IDs).
+Explicit empty bucket, recipient or group settings are errors; an empty retention
+override visibly skips the lifecycle check. The workflow uses the defaults.
 
 Prefixes must end with `/`.
 
@@ -111,7 +120,7 @@ python3 -B -m push_to_s3.resilience
 python3 -B -m push_to_s3.performance --report /tmp/file-transfer-l4.json
 ```
 
-For hosted pickup, set its required variables and replace `push_to_s3` with
+For hosted pickup, replace `push_to_s3` with
 `push_to_s3_with_hosted_pickup`. Presigned pickup uses the separate `access.py`
 checks described above.
 

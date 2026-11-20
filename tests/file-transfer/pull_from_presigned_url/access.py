@@ -36,9 +36,10 @@ AUTHORISED_GROUPS_VARIABLE = "FILE_TRANSFER_PRESIGNED_AUTHORISED_GROUP_IDS"
 
 
 def expected_group_ids(environ=None):
-    """Return the Identity Center group IDs that should hold read access, from the environment."""
+    """Return MP's expected test group IDs, with an optional local override."""
     environ = os.environ if environ is None else environ
-    groups = {item.strip() for item in environ.get(AUTHORISED_GROUPS_VARIABLE, "").split(",") if item.strip()}
+    configured = environ.get(AUTHORISED_GROUPS_VARIABLE, "1622e2b4-9011-7000-b2fc-87228b7308cd")
+    groups = {item.strip() for item in configured.split(",") if item.strip()}
     if not groups:
         raise ValueError(f"Set {AUTHORISED_GROUPS_VARIABLE} to the comma-separated authorised group IDs.")
     return groups
