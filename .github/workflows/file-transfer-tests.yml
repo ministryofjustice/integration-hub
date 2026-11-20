@@ -63,7 +63,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify the harness handles success and failure correctly
-        run: python3 -B -m unittest discover -s tests/file-transfer -p 'test_*.py' -v
+        run: python3 -B -m unittest discover -s tests/file-transfer -t tests/file-transfer -p 'test_*.py' -v
 
   fetch-secrets:
     needs: unit-tests
@@ -95,6 +95,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: smoke-test
     timeout-minutes: 30
+    env:
+      PYTHONPATH: tests/file-transfer
     permissions:
       contents: read
       id-token: write
@@ -207,7 +209,7 @@ jobs:
 
       - name: L1 smoke - verify a small file arrives unchanged
         id: l1_smoke
-        run: python3 -B tests/file-transfer/smoke_test.py
+        run: python3 -B -m push_to_s3.smoke
 
       - name: Report L1 smoke result
         if: always()
@@ -239,7 +241,7 @@ jobs:
 
       - name: L2 functional - verify edge-case delivery
         id: l2_functional
-        run: python3 -B tests/file-transfer/functional_test.py
+        run: python3 -B -m push_to_s3.functional
 
       - name: Report L2 integrity result
         if: always()
@@ -269,9 +271,9 @@ jobs:
             echo "Scope: integrity, metadata, and KMS encryption checks for the direct-to-S3 route; this is not the complete L2 route and negative-case matrix."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: L3 resilience - verify concurrency and duplicate handling
+      - name: L3 resilience - verify concurrency, duplicate handling and source rejection
         id: l3_resilience
-        run: python3 -B tests/file-transfer/resilience_test.py
+        run: python3 -B -m push_to_s3.resilience --include-rejection-check
 
       - name: Report L3 concurrency result
         if: always()
@@ -285,7 +287,8 @@ jobs:
             echo ""
             case "$TEST_OUTCOME" in
               success)
-                echo "**PASS: concurrent files arrived unchanged, and repeating the same action request created no second destination version.**"
+                echo "**PASS: concurrent files arrived unchanged, a same-size replacement overwrote the original, and repeating the same action request created no second destination version.**"
+                echo "Unauthorised source requests were rejected during route validation."
                 ;;
               failure)
                 echo "**FAIL: an L3 resilience check could not be verified.**"
@@ -297,20 +300,88 @@ jobs:
                 ;;
             esac
             echo ""
-            echo "Scope: concurrent delivery and duplicate action idempotency only; SQS retry, DLQ/replay, tenant isolation, and alerting are not included."
+            echo "Scope: concurrent delivery, replacement, duplicate action idempotency and source-authorisation rejection; SQS retry, DLQ/replay, cross-identity isolation, and alerting are not included."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: L2 investigation - verify inconclusive GuardDuty scans route files to investigation
-        run: python3 -B tests/file-transfer/investigation_test.py --environment test
+        run: python3 -B -m lifecycle.investigation --environment test
 
       - name: L2 quarantine - verify files flagged as malware by GuardDuty reach quarantine
-        run: python3 -B tests/file-transfer/quarantine_test.py --environment test
+        run: python3 -B -m lifecycle.quarantine --environment test
+
+      - name: Hosted pickup L1-L3 - verify delivery to the hosted pickup bucket
+        id: hosted_pickup_tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m push_to_s3_with_hosted_pickup.smoke
+          python3 -B -m push_to_s3_with_hosted_pickup.functional
+          python3 -B -m push_to_s3_with_hosted_pickup.resilience --include-rejection-check
+
+      - name: Report hosted pickup result
+        if: always()
+        shell: bash
+        env:
+          TEST_OUTCOME: ${{ steps.hosted_pickup_tests.outcome }}
+        run: |
+          {
+            echo "### Hosted pickup delivery: L1-L3"
+            echo "Test environment only. Uses unique synthetic files and the test hosted pickup mover."
+            echo ""
+            case "$TEST_OUTCOME" in
+              success)
+                echo "**PASS: files arrived unchanged in the hosted pickup bucket with metadata and KMS encryption, replacements overwrote the original, and a duplicate action request created no second copy.**"
+                echo "Unauthorised source requests were rejected during route validation."
+                ;;
+              failure)
+                echo "**FAIL: a hosted pickup check could not be verified.**"
+                echo "Check the failing step output and test run ID in the hosted pickup step logs."
+                ;;
+              *)
+                echo "**NOT COMPLETED: hosted pickup checks did not record a pass.**"
+                echo "Check earlier steps, environment approvals, or cancellation."
+                ;;
+            esac
+            echo ""
+            echo "Scope: delivery is read back from the MP test hosted-pickup bucket, and its one-day lifecycle configuration is checked. Recipient pickup is not exercised."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Presigned pickup - verify the access controls on the retained copy
+        id: presigned_tests
+        run: python3 -B -m pull_from_presigned_url.access
+
+      - name: Report presigned pickup result
+        if: always()
+        shell: bash
+        env:
+          TEST_OUTCOME: ${{ steps.presigned_tests.outcome }}
+        run: |
+          {
+            echo "### Presigned pickup: access control"
+            echo "Test environment only. Uses a unique synthetic file and the test pull-from-presigned-url notifier."
+            echo ""
+            case "$TEST_OUTCOME" in
+              success)
+                echo "**PASS: the recipient prefix grants read access only to the expected groups, and neither an anonymous request nor the test role could read the retained file.**"
+                ;;
+              failure)
+                echo "**FAIL: a presigned pickup access check could not be verified.**"
+                echo "Check the failing step output and test run ID in the presigned step logs."
+                ;;
+              *)
+                echo "**NOT COMPLETED: presigned pickup checks did not record a pass.**"
+                echo "Check earlier steps, environment approvals, or cancellation."
+                ;;
+            esac
+            echo ""
+            echo "Scope: access control only. Slack delivery, an authorised member's download and a signed-in non-member's refusal are manual checks."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: L4 non-functional - measure bounded delivery baselines
         id: l4_performance
         if: github.event_name == 'workflow_dispatch' && inputs.run_l4
         run: >-
-          python3 -B tests/file-transfer/performance_test.py
+          python3 -B -m push_to_s3.performance
           --report "$RUNNER_TEMP/file-transfer-l4.json"
           --summary "$GITHUB_STEP_SUMMARY"
 

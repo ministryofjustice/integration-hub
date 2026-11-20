@@ -1,11 +1,10 @@
-import argparse
 import hashlib
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from harness import run_terminal_routing_test
+from common.routing import run_routing_cli, run_terminal_routing_test
 
 
 EICAR_URL = "https://secure.eicar.org/eicar.com"
@@ -43,7 +42,7 @@ def validate_eicar(fixture):
 
 
 def run_quarantine_test(environment, timeout_seconds=300):
-    """Prefer the local fixture, then try curl if it cannot be used."""
+    """Verify the quarantine outcome using a local or verified downloaded fixture."""
     try:
         validate_eicar(LOCAL_EICAR_FIXTURE)
     except (OSError, ValueError) as error:
@@ -66,16 +65,9 @@ def run_quarantine_test(environment, timeout_seconds=300):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Check that the EICAR test file lands in quarantine.")
-    parser.add_argument("--environment", choices=("development", "test"), required=True)
-    parser.add_argument("--timeout-seconds", type=float, default=300)
-    args = parser.parse_args(argv)
-    try:
-        run_quarantine_test(args.environment, timeout_seconds=args.timeout_seconds)
-    except (RuntimeError, OSError, ValueError) as error:
-        print(f"FAIL: {error}", file=sys.stderr)
-        return 1
-    return 0
+    return run_routing_cli(
+        "Check that the EICAR test file lands in quarantine.", run_quarantine_test, argv,
+    )
 
 
 if __name__ == "__main__":

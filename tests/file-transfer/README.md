@@ -1,123 +1,150 @@
-# File-transfer Tests
+# File-transfer tests
 
-The file-transfer tests check that synthetic files are delivered through the
-direct-to-S3 `push-to-s3` route in the test account and arrive unchanged.
+These tests send files through the File Transfer Service and check what happens
+to them. They cover delivery to S3, hosted pickup, presigned-pickup permissions,
+and the files sent to quarantine or investigation.
 
-## Test coverage
+Live tests use AWS resources. Unit tests check the test code without connecting
+to AWS.
 
-- **Local unit tests** ([test_harness.py](test_harness.py)) mock AWS and polling
-  to check the shared test harness, scenarios, and failure handling. This
-  includes retrying terminal-bucket lookups and timing out if only a similar
-  object key appears. They need no AWS credentials.
-- **L1 smoke** ([smoke_test.py](smoke_test.py)) uploads one small text file and
-  verifies its delivery.
-- **L2 functional** ([functional_test.py](functional_test.py)) checks delivery
-  of zero-byte, binary, 2 MiB, and special-character filename fixtures. It
-  verifies file contents, metadata, and KMS encryption.
-- **L3 resilience** ([resilience_test.py](resilience_test.py)) checks delivery
-  of concurrent files and confirms repeating the same action request does not
-  create a duplicate destination version.
-- **L2 investigation routing** ([investigation_test.py](investigation_test.py))
-  uploads `test-document.pdf` and checks that it arrives in the investigation
-  bucket, failing if it is found in clean or quarantine instead.
-- **L2 quarantine routing** ([quarantine_test.py](quarantine_test.py)) uses
-  the EICAR antivirus test file and checks that it reaches quarantine rather than
-  clean or investigation.
-- **L4 baseline** ([performance_test.py](performance_test.py)) measures
-  sequential delivery for three 1 MiB files and one 16 MiB file. Results are
-  informational; no performance threshold is enforced.
+## Finding your way around
 
-The workflow runs the L1-L3 direct-to-S3 checks and both routing checks on each
-live test run. It does not test other upload routes, SQS retries, DLQ replay, or
-negative cases.
-
-## Run local unit tests
-
-From the repository root, with Python 3.9 or newer:
-
-```sh
-python3 -B -m unittest discover -s tests/file-transfer -p 'test_*.py' -v
+```text
+tests/file-transfer/
+  common/                         Code shared by the tests
+  lifecycle/                      Quarantine and investigation checks
+  push_to_s3/                     Delivery to a recipient's S3 bucket
+  push_to_s3_with_hosted_pickup/   Delivery to a pickup bucket we provide
+  pull_from_presigned_url/        Access to files collected through the portal
+  unit/                           Tests for the test code
 ```
 
-No additional Python packages or AWS credentials are required.
+The two S3 delivery packages have the same four entry points:
 
-## Run live delivery tests
+- `smoke.py` sends one small file to check that delivery works.
+- `functional.py` checks empty files, binary data, larger files and unusual
+  filenames. It also checks metadata and encryption. Hosted pickup includes
+  nested directories.
+- `resilience.py` checks concurrent uploads, replacing a file and repeating a
+  delivery request. It also checks that the original clean-file version is kept.
+- `performance.py` measures delivery times for three 1 MiB files and one
+  16 MiB file. It records a baseline; there is no pass/fail speed target.
 
-Live tests use the dedicated test account and require access to the protected
-`smoke-test` GitHub environment and its harness role. Confirm the test
-environment and delivery infrastructure are ready before running; tests upload
-synthetic files to AWS.
+In the workflow, these are labelled L1 smoke, L2 functional, L3 resilience and
+L4 baseline.
 
-To run manually, open **Actions > File Transfer Tests > Run workflow** in
-GitHub and select an authorised branch. The workflow runs L1, L2, L3, and both
-routing checks after its local unit tests pass. It also runs automatically when
-called by the Modernisation Platform Environments workflow after a successful
-test deployment.
+The [lifecycle checks](lifecycle/) run once for the shared processing pipeline.
+They check that the approved PDF reaches investigation and the EICAR antivirus
+test file reaches quarantine. Finding either file in the wrong bucket fails
+the check.
 
-The routing checks run only against the test account. The selected branch must
-contain the test scripts and approved `test-document.pdf` fixture. The quarantine
-check uses `eicar.txt` if present, or downloads the fixture with `curl`. The
-EICAR fixture can trigger malware alerts.
+Presigned pickup has an [access check](pull_from_presigned_url/access.py).
+It waits for a file to be available for pickup, checks who has READ grants, and
+confirms that neither an anonymous visitor nor the test role can read the file
+directly. Checking the Slack notification and downloading through the portal
+as an authorised or unauthorised user are manual tests.
 
-The harness role needs permission to upload under `test-harness/investigation/`
-and `test-harness/quarantine/` in the incoming bucket and list the clean,
-investigation and quarantine buckets for those keys.
+## Run the unit tests
 
-### Run the investigation routing check locally
-
-Put the approved `test-document.pdf` fixture beside the script. From the
-repository root, use AWS CLI v2 credentials for the selected environment with
-permission to upload under `test-harness/investigation/` in the incoming bucket
-and list the clean, quarantine and investigation buckets. This check does not
-use the `push-to-s3` prefix.
+You need Python 3.9 or newer. From the repository root, run:
 
 ```sh
-python3 -B tests/file-transfer/investigation_test.py --environment development
+python3 -B -m unittest discover -s tests/file-transfer -t tests/file-transfer -p 'test_*.py' -v
 ```
 
-Use `--environment test` with test-account credentials to target test instead.
+You do not need AWS credentials or any extra Python packages.
 
-### Run the quarantine routing check locally
+## Run live tests
 
-Use AWS CLI v2 and credentials for the selected environment with
-permission to upload under `test-harness/quarantine/` in the incoming bucket and
-list the clean, quarantine and investigation buckets. The script verifies and
-uses `eicar.txt` beside the script first. If that file is missing, unreadable or
-invalid, it uses `curl` to download and verify `eicar.com`. If neither source
-provides a valid fixture, the test fails before uploading anything. Run only
-in an authorised development or test environment: the fixture is harmless but
-can trigger malware alerts.
+You need AWS CLI v2, Python 3.9 or newer, and credentials for the test account.
+The delivery tests use `eu-west-2`. Check that you are using the intended
+account and role before uploading anything.
+
+From the repository root:
 
 ```sh
-python3 -B tests/file-transfer/quarantine_test.py --environment development
+export PYTHONPATH=tests/file-transfer
+
+python3 -B -m push_to_s3.smoke
+python3 -B -m push_to_s3.functional
+python3 -B -m push_to_s3.resilience
+python3 -B -m push_to_s3.performance --report /tmp/file-transfer-l4.json
 ```
 
-### Run the L4 baseline on GitHub
+Replace `push_to_s3` with `push_to_s3_with_hosted_pickup` to test hosted pickup.
+Its resilience check also checks the bucket's one-day expiry rule. This checks
+the rule, not whether S3 has already deleted a file.
 
-1. Open the repository's **Actions** tab and select **File Transfer Tests**.
-2. Select **Run workflow**.
-3. Choose an authorised branch.
-4. Tick **Run the informational L4 baseline** in the workflow inputs, then
-   select **Run workflow** to start the run.
-
-The workflow runs L1-L3 first. L4 runs only if those tests succeed, using the
-same protected test environment. Its JSON report is saved as a workflow
-artifact and a summary table is added to the run.
-
-### Run the L4 baseline locally
-
-You need AWS CLI v2 and Python 3.9 or newer installed.
-
-1. Open [the MoJ AWS access portal](https://moj.awsapps.com/start) and sign in.
-2. Expand **integration-hub-file-transfer-test** in the list of AWS accounts.
-   If it is missing, request access from the team.
-3. Next to your assigned role, click on the `Access keys` link. This will give you options to get your temporary access keys.
-4. Using the access keys, you can run the baseline tests:
+For presigned pickup:
 
 ```sh
-python3 -B tests/file-transfer/performance_test.py \
-  --report /tmp/file-transfer-l4.json
+python3 -B -m pull_from_presigned_url.access
 ```
 
-The test uses `eu-west-2` and uploads 19 MiB of synthetic files. Results are
-printed in the terminal and saved to `/tmp/file-transfer-l4.json`.
+For quarantine and investigation:
+
+```sh
+python3 -B -m lifecycle.investigation --environment test
+python3 -B -m lifecycle.quarantine --environment test
+```
+
+These two commands also accept `--environment development` and
+`--timeout-seconds`. Use credentials for the environment you select.
+The investigation check uses the PDF in [lifecycle/](lifecycle/). The quarantine
+check uses `lifecycle/eicar.txt` if it is valid, otherwise it downloads and
+verifies the EICAR fixture using `curl`. **EICAR is harmless, but running this
+check can trigger malware alerts.**
+
+For local runs, add `--include-rejection-check` to a resilience command to send
+deliberately invalid requests. Check the alarm impact before running them:
+rejected requests increase the writer's failure metric.
+The check matches each failed message to its source-authorisation error in that
+invocation's logs. Missing logs or unrelated errors fail the check. Log contents
+are not printed.
+
+## Run through GitHub Actions
+
+Open **Actions > File Transfer Tests > Run workflow**, choose an authorised
+branch and choose whether to include the L4 baseline.
+
+Every live run checks direct-S3 and hosted-pickup delivery, presigned-pickup
+access controls, investigation and quarantine. Both delivery routes include
+the rejection checks, which increase the writers' failure metrics.
+
+Only the L4 baseline is optional. It writes a JSON report, which is saved as a
+workflow artifact, and adds timings to the run summary.
+
+Unit tests run first. Live tests use the dedicated test role and the
+`smoke-test` GitHub environment, so its branch restrictions and approvals apply.
+
+The [workflow](../../.github/workflows/file-transfer-tests.yml) also runs:
+
+- **Unit tests on pull requests to `main`.**
+- **Unit and default live tests on pushes to `smoke-test`.**
+- **Unit and default live tests when called after an eligible MP test
+  deployment.** Fork pull requests do not run live tests.
+
+The push and pull-request triggers apply when the test files or workflow
+change. These checks provide evidence; they do not automatically approve a
+production release. See [#218](https://github.com/ministryofjustice/integration-hub/issues/218)
+for the wider promotion process.
+
+## Test settings
+
+The defaults match the test resources managed in
+[Modernisation Platform Environments](https://github.com/ministryofjustice/modernisation-platform-environments/tree/main/terraform/environments/integration-hub-file-transfer).
+You do not need to add route variables in GitHub. The infrastructure and
+permissions must already be deployed; the tests do not create them.
+
+The bucket names, incoming prefixes and local overrides are defined in
+[common/routes.py](common/routes.py). The expected pickup group is defined in
+[pull_from_presigned_url/access.py](pull_from_presigned_url/access.py).
+Presigned pickup looks up the AWS account ID to find its bucket.
+
+Use the dedicated test role when collecting results. It can read delivered
+files but cannot write them to the destination. For presigned pickup it can
+list files, but must not be able to read them.
+
+Files go through normal scanning. Do not copy a file into a destination or
+bypass scanning to make a test pass. The duplicate-request checks call the
+writer directly, so they do not prove that SQS retries or DLQ replay work.
