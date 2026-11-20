@@ -1,7 +1,7 @@
 # Integration Hub PagerDuty business services
 
-The GitHub Actions workflow plans changes on pull requests and applies them when
-they are merged to `main`.
+Matching pull requests targeting `main` validate Terraform. Same-repository
+PRs also run a production plan. After merge, `main` runs a fresh plan and apply.
 
 ## What this creates
 
@@ -21,19 +21,11 @@ Confirm the PagerDuty account before running a plan. Team assignment is
 optional; set `pagerduty_team_id` to assign the services to a team.
 
 Set the `PRODUCTION_ACCOUNT_ID` repository secret in Integration Hub to the
-12-digit production AWS account ID. The workflow uses OIDC to assume these
-roles in that account:
-
-- `role/github-actions/integration-hub-pagerduty-plan` for pull request plans
-- `role/github-actions/integration-hub-pagerduty` for applies on `main`
-
-The roles, secrets and state bucket are created in
-`modernisation-platform-environments`. Deploy that change first.
-
-The API tokens are stored in AWS Secrets Manager: `pagerduty/api-key` for
-applies and a read-only key in `pagerduty/api-key-read-only` for pull request
-plans. When replacing either one, an authorised person should store just the
-token on one line, not JSON.
+12-digit production AWS account ID. Both plan and apply use OIDC to assume
+`role/github-actions/integration-hub-pagerduty`. They need the existing state
+bucket, KMS access and `pagerduty/api-key` secret in that account. Confirm the
+key can manage the business services before merging. Store the token on one
+line, not as JSON.
 
 The workflow reads a token only when it runs. Do not put it in GitHub, code,
 variables files or logs. Terraform marks it sensitive and ephemeral, so its
@@ -41,17 +33,21 @@ value is not saved in state or plan files.
 
 ## Plans and applies
 
-Pull requests run formatting and validation without AWS access. For pull
-requests from this repository, the plan job then waits for approval in the
-`pagerduty-production-plan` environment. It assumes the plan role, reads the
-read-only token and writes the plan to the job log. Pull requests from forks
-do not get a plan.
+The [PR workflow](../../.github/workflows/pagerduty-plan.yml) checks formatting
+and validates without the backend, OIDC or a PagerDuty token. After validation,
+the plan job skips forks and uses the existing role and `pagerduty/api-key`
+to run a locked production plan. It does not save or apply the plan.
 
-Approved pull request code can read the production state and the read-only
-token, so only approve changes you trust.
+The production role must trust the repository's PR OIDC subject for this to
+work. Before enabling that trust, review who can run PR code: these sessions
+can read production state and the same PagerDuty token used for apply. If the
+token can write, PR code has that capability even though the job runs only
+`terraform plan`. Masking the token does not restrict its permissions.
 
-Merging to `main` runs the apply job. It assumes the apply role, plans again
-and applies that plan. The apply job must not use a GitHub environment: that
+The [apply workflow](../../.github/workflows/pagerduty-apply.yml) runs on
+matching pushes to `main`, including the merge that introduces the workflow.
+It validates, creates a fresh production plan and applies that saved plan in
+the same job. The apply job must not use a GitHub environment: that
 changes the OIDC subject and the role will not trust it. Keep `main` protected.
 
 Check for existing business services before merging to avoid creating
