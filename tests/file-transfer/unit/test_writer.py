@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 import unittest
@@ -15,15 +16,34 @@ SOURCE = {"bucket": CLEAN_BUCKET, "key": "k", "versionId": "v1", "sizeBytes": 3}
 
 
 class InvokeTests(unittest.TestCase):
-    def invoke(self, response, payload, expect_failure=False):
+    REJECTION_REASON = "source key is outside the authorised prefix"
+
+    def invoke(self, response, payload, expected_failure_reason=None):
         def fake_cli(service, operation, *arguments, timeout=30):
             Path(arguments[-1]).write_text(json.dumps(payload(arguments)))
-            return response
+            return response(arguments) if callable(response) else response
 
         with patch("common.writer.aws_cli", side_effect=fake_cli) as cli:
             return writer.invoke_lambda_with_sqs_record(
-                "fn", {"a": 1}, "arn:queue", self.path, expect_failure
+                "fn", {"a": 1}, "arn:queue", self.path, expected_failure_reason
             ), cli
+
+    def failed_payload(self, arguments):
+        record = json.loads(arguments[arguments.index("--payload") + 1])["Records"][0]
+        return {"batchItemFailures": [{"itemIdentifier": record["messageId"]}]}
+
+    def rejection_response(self, arguments, **fields):
+        record = json.loads(arguments[arguments.index("--payload") + 1])["Records"][0]
+        log = {
+            "message": "record processing failed",
+            "sqsMessageId": record["messageId"],
+            "operation": "validate-route",
+            "errorType": "InvalidMessage",
+            "failureReason": self.REJECTION_REASON,
+            **fields,
+        }
+        logs = "START RequestId: invocation\n" + json.dumps(log) + "\nEND RequestId: invocation\n"
+        return {"LogResult": base64.b64encode(logs.encode()).decode()}
 
     def setUp(self):
         import tempfile
@@ -32,20 +52,67 @@ class InvokeTests(unittest.TestCase):
         self.path = Path(self.directory.name) / "response.json"
 
     def test_success_needs_an_empty_failure_list(self):
-        self.invoke({}, lambda a: {"batchItemFailures": []})
+        _, cli = self.invoke({}, lambda a: {"batchItemFailures": []})
+        self.assertNotIn("--log-type", cli.call_args.args)
         with self.assertRaisesRegex(RuntimeError, "did not acknowledge"):
             self.invoke({}, lambda a: {"batchItemFailures": [{"itemIdentifier": "x"}]})
 
     def test_expected_failure_must_name_exactly_this_message(self):
+        _, cli = self.invoke(self.rejection_response, self.failed_payload, self.REJECTION_REASON)
+        arguments = cli.call_args.args
+        self.assertEqual(arguments[arguments.index("--log-type") + 1], "Tail")
+        for failures in ([{"itemIdentifier": "other"}], []):
+            with self.subTest(failures=failures), self.assertRaisesRegex(RuntimeError, "did not reject"):
+                self.invoke(self.rejection_response, lambda a: {"batchItemFailures": failures},
+                            self.REJECTION_REASON)
+
+    def test_a_missing_source_failure_is_not_an_authorisation_rejection(self):
+        def response(arguments):
+            record = json.loads(arguments[arguments.index("--payload") + 1])["Records"][0]
+            log = {
+                "message": "record processing failed",
+                "sqsMessageId": record["messageId"],
+                "operation": "HeadObject",
+                "errorType": "ClientError",
+                "awsErrorCode": "NoSuchVersion",
+                "failureReason": None,
+            }
+            return {"LogResult": base64.b64encode(json.dumps(log).encode()).decode()}
+
         def payload(arguments):
             record = json.loads(arguments[arguments.index("--payload") + 1])["Records"][0]
             return {"batchItemFailures": [{"itemIdentifier": record["messageId"]}]}
 
-        self.invoke({}, payload, expect_failure=True)
-        with self.assertRaisesRegex(RuntimeError, "did not reject"):
-            self.invoke({}, lambda a: {"batchItemFailures": [{"itemIdentifier": "other"}]}, expect_failure=True)
-        with self.assertRaisesRegex(RuntimeError, "did not reject"):
-            self.invoke({}, lambda a: {"batchItemFailures": []}, expect_failure=True)
+        with self.assertRaisesRegex(RuntimeError, "source-authorisation rejection"):
+            self.invoke(response, payload, self.REJECTION_REASON)
+
+    def test_unrelated_or_uncorrelated_errors_do_not_confirm_a_rejection(self):
+        for fields in (
+            {"failureReason": "source bucket is not authorised"},
+            {"sqsMessageId": "another-message"},
+            {"operation": "read-dispatch-secret"},
+            {"errorType": "RuntimeError"},
+            {"message": "unrelated log entry"},
+        ):
+            with self.subTest(fields=fields), \
+                    self.assertRaisesRegex(RuntimeError, "source-authorisation rejection"):
+                self.invoke(lambda a: self.rejection_response(a, **fields),
+                            self.failed_payload, self.REJECTION_REASON)
+
+    def test_missing_or_unreadable_logs_cannot_pass(self):
+        for response in ({}, {"LogResult": None}, {"LogResult": ""}, {"LogResult": "not-base64"},
+                         {"LogResult": base64.b64encode(b"\xff").decode()}):
+            with self.subTest(response=response), self.assertRaisesRegex(RuntimeError, "rejection logs"):
+                self.invoke(response, self.failed_payload, self.REJECTION_REASON)
+
+    def test_unstructured_or_truncated_logs_cannot_pass_or_expose_log_contents(self):
+        for logs in ("private log contents", '{"failureReason": "truncated'):
+            response = {"LogResult": base64.b64encode(logs.encode()).decode()}
+            with self.subTest(logs=logs), redirect_stdout(io.StringIO()) as output:
+                with self.assertRaisesRegex(RuntimeError, "source-authorisation rejection") as raised:
+                    self.invoke(response, self.failed_payload, self.REJECTION_REASON)
+                self.assertNotIn(logs, str(raised.exception))
+                self.assertEqual(output.getvalue(), "")
 
 
 class DuplicateActionTests(unittest.TestCase):
@@ -114,7 +181,10 @@ class RejectionTests(unittest.TestCase):
                 patch("common.writer.list_keys", return_value=set()), redirect_stdout(io.StringIO()):
             writer.run_rejected_request_test(s3_route())
         self.assertEqual(len(events), 2)
-        self.assertTrue(all(k["expect_failure"] for _, k in events))
+        self.assertEqual(
+            [k["expected_failure_reason"] for _, k in events],
+            ["source key is outside the authorised prefix", "source bucket is not authorised"],
+        )
         buckets = [e["detail"]["data"]["object"]["bucket"] for e, _ in events]
         self.assertEqual(buckets, [CLEAN_BUCKET, INCOMING_BUCKET])
 

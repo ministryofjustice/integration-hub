@@ -98,6 +98,9 @@ check can trigger malware alerts.**
 Resilience tests can also send deliberately invalid requests with
 `--include-rejection-check`. Leave this off unless you have checked the alarm
 impact: rejected requests increase the writer's failure metric.
+The check matches each failed message to its source-authorisation error in that
+invocation's logs. Missing logs or unrelated errors fail the check. Log contents
+are not printed.
 
 ## Run through GitHub Actions
 

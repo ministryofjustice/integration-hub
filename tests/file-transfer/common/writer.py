@@ -1,3 +1,4 @@
+import base64
 import json
 import tempfile
 import time
@@ -120,13 +121,39 @@ def head_destination_version(route, object_key):
     return f"etag:{etag}@{modified}"
 
 
-def invoke_lambda_with_sqs_record(function_name, body, queue_arn, response_path, expect_failure=False):
+def _verify_source_rejection(log_result, message_id, expected_reason):
+    if not isinstance(log_result, str) or not log_result:
+        raise RuntimeError("Lambda returned no rejection logs.")
+    try:
+        logs = base64.b64decode(log_result, validate=True).decode("utf-8")
+    except ValueError:
+        raise RuntimeError("Lambda returned invalid rejection logs.") from None
+    expected = {
+        "message": "record processing failed",
+        "sqsMessageId": message_id,
+        "operation": "validate-route",
+        "errorType": "InvalidMessage",
+        "failureReason": expected_reason,
+    }
+    for line in logs.splitlines():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            # Lambda also includes plain-text START, END and REPORT lines.
+            continue
+        if isinstance(entry, dict) and all(entry.get(key) == value for key, value in expected.items()):
+            return
+    raise RuntimeError("The function did not log the expected source-authorisation rejection.")
+
+
+def invoke_lambda_with_sqs_record(function_name, body, queue_arn, response_path,
+                                  expected_failure_reason=None):
     """Call a deployed SQS-triggered function directly and return its response and message ID.
 
     The input looks like an SQS delivery because that is what the function expects,
     but no message is sent to SQS. This does not test queue retries or redelivery.
-    A processing error is a failure unless expect_failure is set, in which case
-    the function must report exactly this message as failed.
+    An expected rejection must name this message in the failure response and log
+    the specified source-authorisation error during route validation.
     """
     # Each call has a new message ID, but the delivery action in body stays the same.
     message_id = str(uuid.uuid4())
@@ -141,10 +168,12 @@ def invoke_lambda_with_sqs_record(function_name, body, queue_arn, response_path,
         "eventSourceARN": queue_arn,
         "awsRegion": REGION,
     }
+    log_arguments = ["--log-type", "Tail"] if expected_failure_reason is not None else []
     response = aws_cli(
         "lambda", "invoke",
         "--function-name", function_name,
         "--invocation-type", "RequestResponse",
+        *log_arguments,
         "--cli-binary-format", "raw-in-base64-out",
         "--payload", json.dumps({"Records": [record]}, separators=(",", ":")),
         str(response_path),
@@ -155,18 +184,19 @@ def invoke_lambda_with_sqs_record(function_name, body, queue_arn, response_path,
     # Lambda writes its response to this local file; an empty failure list means success.
     payload = json.loads(Path(response_path).read_text())
     failures = payload.get("batchItemFailures")
-    if expect_failure:
+    if expected_failure_reason is not None:
         if failures != [{"itemIdentifier": message_id}]:
             raise RuntimeError("The function did not reject the request as expected.")
+        _verify_source_rejection(response.get("LogResult"), message_id, expected_failure_reason)
     elif failures != []:
         raise RuntimeError("The function did not acknowledge the test request.")
     return payload, message_id
 
 
-def invoke_writer(route, event, queue_arn, response_path, expect_failure=False):
+def invoke_writer(route, event, queue_arn, response_path, expected_failure_reason=None):
     """Call the route's deployed writer with an SQS-shaped event."""
     return invoke_lambda_with_sqs_record(
-        route.writer_function_name, event, queue_arn, response_path, expect_failure
+        route.writer_function_name, event, queue_arn, response_path, expected_failure_reason
     )
 
 
@@ -266,8 +296,10 @@ def run_rejected_request_test(route, timeout_seconds=120):
     """Check the writer fails closed when a request names an unauthorised source.
 
     The writer must reject the request before it reads the dispatch secret or
-    touches the destination, and report it as a failed record. Nothing may be
-    delivered. This deliberately increments the writer's failed-record metric.
+    touches the destination, and report it as a failed record. Its invocation logs
+    must confirm the specific source-authorisation error; a missing source version
+    or another processing failure is not a pass. Nothing may be delivered.
+    This deliberately increments the writer's failed-record metric.
     """
     run_token = uuid.uuid4().hex
     # TODO: also reject a lookalike prefix, a "../" key and another transfer identity.
@@ -276,10 +308,12 @@ def run_rejected_request_test(route, timeout_seconds=120):
         (
             "source key outside the authorised prefix",
             {"bucket": CLEAN_BUCKET, "key": f"test-harness/unauthorised/{run_token}/file.bin"},
+            "source key is outside the authorised prefix",
         ),
         (
             "source bucket that is not the clean bucket",
             {"bucket": INCOMING_BUCKET, "key": f"{route.incoming_prefix}{run_token}/file.bin"},
+            "source bucket is not authorised",
         ),
     ]
     deadline = time.monotonic() + timeout_seconds
@@ -291,13 +325,14 @@ def run_rejected_request_test(route, timeout_seconds=120):
 
     with tempfile.TemporaryDirectory(prefix="file-transfer-rejection-") as directory:
         response_path = Path(directory) / "writer-response.json"
-        for description, source in cases:
+        for description, source, expected_reason in cases:
             event = build_action_request(
                 account,
                 {**source, "versionId": "unauthorised-test-version", "sizeBytes": 1},
                 secret_arn, secret_version_id, action_name=route.name,
             )
-            invoke_writer(route, event, queue_arn, response_path, expect_failure=True)
+            invoke_writer(route, event, queue_arn, response_path,
+                          expected_failure_reason=expected_reason)
             print(f"PASS: writer rejected a {description}.", flush=True)
 
         if list_keys(route, route.run_prefix(run_token), deadline,
