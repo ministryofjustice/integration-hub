@@ -95,9 +95,9 @@ check uses `lifecycle/eicar.txt` if it is valid, otherwise it downloads and
 verifies the EICAR fixture using `curl`. **EICAR is harmless, but running this
 check can trigger malware alerts.**
 
-Resilience tests can also send deliberately invalid requests with
-`--include-rejection-check`. Leave this off unless you have checked the alarm
-impact: rejected requests increase the writer's failure metric.
+For local runs, add `--include-rejection-check` to a resilience command to send
+deliberately invalid requests. Check the alarm impact before running them:
+rejected requests increase the writer's failure metric.
 The check matches each failed message to its source-authorisation error in that
 invocation's logs. Missing logs or unrelated errors fail the check. Log contents
 are not printed.
@@ -105,12 +105,14 @@ are not printed.
 ## Run through GitHub Actions
 
 Open **Actions > File Transfer Tests > Run workflow**, choose an authorised
-branch and select the optional checks you want.
+branch and choose whether to include the L4 baseline.
 
-Every live run checks direct-S3 delivery, investigation and quarantine.
-Hosted pickup, presigned pickup and the L4 baseline are optional. L4 writes a
-JSON report, which is saved as a workflow artifact, and adds timings to the
-run summary.
+Every live run checks direct-S3 and hosted-pickup delivery, presigned-pickup
+access controls, investigation and quarantine. Both delivery routes include
+the rejection checks, which increase the writers' failure metrics.
+
+Only the L4 baseline is optional. It writes a JSON report, which is saved as a
+workflow artifact, and adds timings to the run summary.
 
 Unit tests run first. Live tests use the dedicated test role and the
 `smoke-test` GitHub environment, so its branch restrictions and approvals apply.

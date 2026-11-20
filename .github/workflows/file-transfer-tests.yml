@@ -26,21 +26,6 @@ on:
         type: boolean
         required: false
         default: false
-      run_hosted_pickup:
-        description: "Run hosted-pickup L1-L3 tests using the MP test-harness configuration"
-        type: boolean
-        required: false
-        default: false
-      run_hosted_pickup_rejection_check:
-        description: "With the hosted pickup tests, also send requests the mover must reject (raises its failure metric)"
-        type: boolean
-        required: false
-        default: false
-      run_presigned:
-        description: "Run presigned-pickup access-control checks using the MP test-harness configuration"
-        type: boolean
-        required: false
-        default: false
   push:
     branches:
       - smoke-test
@@ -286,9 +271,9 @@ jobs:
             echo "Scope: integrity, metadata, and KMS encryption checks for the direct-to-S3 route; this is not the complete L2 route and negative-case matrix."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: L3 resilience - verify concurrency and duplicate handling
+      - name: L3 resilience - verify concurrency, duplicate handling and source rejection
         id: l3_resilience
-        run: python3 -B -m push_to_s3.resilience
+        run: python3 -B -m push_to_s3.resilience --include-rejection-check
 
       - name: Report L3 concurrency result
         if: always()
@@ -303,6 +288,7 @@ jobs:
             case "$TEST_OUTCOME" in
               success)
                 echo "**PASS: concurrent files arrived unchanged, a same-size replacement overwrote the original, and repeating the same action request created no second destination version.**"
+                echo "Unauthorised source requests were rejected during route validation."
                 ;;
               failure)
                 echo "**FAIL: an L3 resilience check could not be verified.**"
@@ -314,7 +300,7 @@ jobs:
                 ;;
             esac
             echo ""
-            echo "Scope: concurrent delivery and duplicate action idempotency only; SQS retry, DLQ/replay, tenant isolation, and alerting are not included."
+            echo "Scope: concurrent delivery, replacement, duplicate action idempotency and source-authorisation rejection; SQS retry, DLQ/replay, cross-identity isolation, and alerting are not included."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: L2 investigation - verify inconclusive GuardDuty scans route files to investigation
@@ -325,22 +311,15 @@ jobs:
 
       - name: Hosted pickup L1-L3 - verify delivery to the hosted pickup bucket
         id: hosted_pickup_tests
-        if: github.event_name == 'workflow_dispatch' && inputs.run_hosted_pickup
-        env:
-          RUN_REJECTION_CHECK: ${{ inputs.run_hosted_pickup_rejection_check }}
         shell: bash
         run: |
           set -euo pipefail
           python3 -B -m push_to_s3_with_hosted_pickup.smoke
           python3 -B -m push_to_s3_with_hosted_pickup.functional
-          rejection=()
-          if [[ "$RUN_REJECTION_CHECK" == "true" ]]; then
-            rejection=(--include-rejection-check)
-          fi
-          python3 -B -m push_to_s3_with_hosted_pickup.resilience "${rejection[@]}"
+          python3 -B -m push_to_s3_with_hosted_pickup.resilience --include-rejection-check
 
       - name: Report hosted pickup result
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.run_hosted_pickup
+        if: always()
         shell: bash
         env:
           TEST_OUTCOME: ${{ steps.hosted_pickup_tests.outcome }}
@@ -352,6 +331,7 @@ jobs:
             case "$TEST_OUTCOME" in
               success)
                 echo "**PASS: files arrived unchanged in the hosted pickup bucket with metadata and KMS encryption, replacements overwrote the original, and a duplicate action request created no second copy.**"
+                echo "Unauthorised source requests were rejected during route validation."
                 ;;
               failure)
                 echo "**FAIL: a hosted pickup check could not be verified.**"
@@ -368,14 +348,10 @@ jobs:
 
       - name: Presigned pickup - verify the access controls on the retained copy
         id: presigned_tests
-        if: github.event_name == 'workflow_dispatch' && inputs.run_presigned
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -B -m pull_from_presigned_url.access
+        run: python3 -B -m pull_from_presigned_url.access
 
       - name: Report presigned pickup result
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.run_presigned
+        if: always()
         shell: bash
         env:
           TEST_OUTCOME: ${{ steps.presigned_tests.outcome }}
