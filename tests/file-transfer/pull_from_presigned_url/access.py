@@ -156,7 +156,7 @@ def run_access_control_test(route, timeout_seconds=300, poll_seconds=3):
     name = f"{run_token}-access.bin"
     relative_key = f"{run_token}/{name}"
     content = f"Synthetic access-control fixture: {run_token}\n".encode()
-    print("File-transfer test: pickup access control.", flush=True)
+    print("File-transfer test: presigned URL access control.", flush=True)
     print(f"Environment: test | Route: {route.label}", flush=True)
     print(f"Test run ID: {run_token}", flush=True)
     deadline = time.monotonic() + timeout_seconds

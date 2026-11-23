@@ -1,7 +1,7 @@
 # File-transfer tests
 
 These tests send files through the File Transfer Service and check what happens
-to them. They cover delivery to S3, hosted pickup, presigned-pickup permissions,
+to them. They cover delivery to S3, hosted pickup, presigned URL access controls,
 and the files sent to quarantine or investigation.
 
 Live tests use AWS resources. Unit tests check the test code without connecting
@@ -38,7 +38,7 @@ They check that the approved PDF reaches investigation and the EICAR antivirus
 test file reaches quarantine. Finding either file in the wrong bucket fails
 the check.
 
-Presigned pickup has an [access check](pull_from_presigned_url/access.py).
+The presigned URL tests include an [access check](pull_from_presigned_url/access.py).
 It waits for a file to be available for pickup, checks who has READ grants, and
 confirms that neither an anonymous visitor nor the test role can read the file
 directly. Checking the Slack notification and downloading through the portal
@@ -75,7 +75,7 @@ Replace `push_to_s3` with `push_to_s3_with_hosted_pickup` to test hosted pickup.
 Its resilience check also checks the bucket's one-day expiry rule. This checks
 the rule, not whether S3 has already deleted a file.
 
-For presigned pickup:
+For presigned URLs:
 
 ```sh
 python3 -B -m pull_from_presigned_url.access
@@ -107,7 +107,7 @@ are not printed.
 Open **Actions > File Transfer Tests > Run workflow**, choose an authorised
 branch and choose whether to include the L4 baseline.
 
-Every live run checks direct-S3 and hosted-pickup delivery, presigned-pickup
+Every live run checks direct-S3 and hosted-pickup delivery, presigned URL
 access controls, investigation and quarantine. Both delivery routes include
 the rejection checks, which increase the writers' failure metrics.
 
@@ -139,10 +139,10 @@ permissions must already be deployed; the tests do not create them.
 The bucket names, incoming prefixes and local overrides are defined in
 [common/routes.py](common/routes.py). The expected pickup group is defined in
 [pull_from_presigned_url/access.py](pull_from_presigned_url/access.py).
-Presigned pickup looks up the AWS account ID to find its bucket.
+The presigned URL tests look up the AWS account ID to find their bucket.
 
 Use the dedicated test role when collecting results. It can read delivered
-files but cannot write them to the destination. For presigned pickup it can
+files but cannot write them to the destination. For presigned URLs it can
 list files, but must not be able to read them.
 
 Files go through normal scanning. Do not copy a file into a destination or

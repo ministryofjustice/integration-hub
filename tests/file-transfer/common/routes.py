@@ -158,7 +158,7 @@ def presigned_route(environ=None):
         bucket = f"integration-hub-file-transfer-pickup-test-{account}"
     return Route(
         name=PULL_FROM_PRESIGNED_URL,
-        label="hosted pickup with portal notification",
+        label="pull from presigned URL",
         incoming_prefix=incoming_prefix,
         destination_bucket=bucket,
         destination_prefix=f"{recipient}/",

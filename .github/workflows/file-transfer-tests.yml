@@ -346,18 +346,18 @@ jobs:
             echo "Scope: delivery is read back from the MP test hosted-pickup bucket, and its one-day lifecycle configuration is checked. Recipient pickup is not exercised."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Presigned pickup - verify the access controls on the retained copy
+      - name: Presigned URL - verify the access controls on the retained copy
         id: presigned_tests
         run: python3 -B -m pull_from_presigned_url.access
 
-      - name: Report presigned pickup result
+      - name: Report presigned URL result
         if: always()
         shell: bash
         env:
           TEST_OUTCOME: ${{ steps.presigned_tests.outcome }}
         run: |
           {
-            echo "### Presigned pickup: access control"
+            echo "### Presigned URL: access control"
             echo "Test environment only. Uses a unique synthetic file and the test pull-from-presigned-url notifier."
             echo ""
             case "$TEST_OUTCOME" in
@@ -365,11 +365,11 @@ jobs:
                 echo "**PASS: the recipient prefix grants read access only to the expected groups, and neither an anonymous request nor the test role could read the retained file.**"
                 ;;
               failure)
-                echo "**FAIL: a presigned pickup access check could not be verified.**"
+                echo "**FAIL: a presigned URL access check could not be verified.**"
                 echo "Check the failing step output and test run ID in the presigned step logs."
                 ;;
               *)
-                echo "**NOT COMPLETED: presigned pickup checks did not record a pass.**"
+                echo "**NOT COMPLETED: presigned URL checks did not record a pass.**"
                 echo "Check earlier steps, environment approvals, or cancellation."
                 ;;
             esac
