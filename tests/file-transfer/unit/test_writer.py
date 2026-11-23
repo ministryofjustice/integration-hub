@@ -229,16 +229,47 @@ class RejectionTests(unittest.TestCase):
 class LifecycleTests(unittest.TestCase):
     RULE = {"Status": "Enabled", "Filter": {"Prefix": "pickup/"}, "Expiration": {"Days": 7}}
 
-    def test_only_enabled_untagged_rules_covering_the_prefix_count(self):
+    def test_only_enabled_current_expirations_covering_the_prefix_count(self):
         rules = [
             self.RULE,
             {**self.RULE, "Status": "Disabled", "Expiration": {"Days": 1}},
-            {**self.RULE, "Filter": {"Prefix": "pickup/", "Tag": {}}, "Expiration": {"Days": 2}},
             {**self.RULE, "Filter": {"Prefix": "other/"}, "Expiration": {"Days": 3}},
             {"Status": "Enabled", "Filter": {}, "Expiration": {"Days": 30}},
             {"Status": "Enabled", "Filter": {"Prefix": "pickup/"}, "NoncurrentVersionExpiration": {}},
         ]
         self.assertEqual(lifecycle_expiry_days(rules, "pickup/"), [7, 30])
+
+    def test_overlapping_filtered_expiration_fails_closed(self):
+        filters = (
+            {"ObjectSizeGreaterThan": 0},
+            {"Tag": {"Key": "retention", "Value": "short"}},
+            {"And": {"Prefix": "pickup/", "ObjectSizeGreaterThan": 0}},
+            {"And": {"Prefix": "pickup/nested/", "Tags": [{"Key": "retention", "Value": "short"}]}},
+        )
+        for rule_filter in filters:
+            filtered = {**self.RULE, "Filter": rule_filter, "Expiration": {"Days": 1}}
+            for rules in ([self.RULE, filtered], [filtered, self.RULE]):
+                with self.subTest(rules=rules), \
+                        patch("common.checks.aws_s3", return_value={"Rules": rules}), \
+                        redirect_stdout(io.StringIO()) as output:
+                    with self.assertRaisesRegex(RuntimeError, "tag or size filters"):
+                        verify_retention_lifecycle(hosted_with_retention(7))
+                    self.assertEqual(output.getvalue(), "")
+
+    def test_filtered_rules_that_do_not_affect_current_pickup_expiry_are_ignored(self):
+        rule_filter = {"And": {"Prefix": "pickup/", "ObjectSizeGreaterThan": 0}}
+        filtered = {**self.RULE, "Filter": rule_filter, "Expiration": {"Days": 1}}
+        ignored = (
+            {**filtered, "Status": "Disabled"},
+            {**filtered, "Filter": {"And": {"Prefix": "other/", "ObjectSizeGreaterThan": 0}}},
+            {"Status": "Enabled", "Filter": rule_filter, "NoncurrentVersionExpiration": {"NoncurrentDays": 1}},
+        )
+        for rule in ignored:
+            with self.subTest(rule=rule), \
+                    patch("common.checks.aws_s3", return_value={"Rules": [self.RULE, rule]}), \
+                    redirect_stdout(io.StringIO()) as output:
+                verify_retention_lifecycle(hosted_with_retention(7))
+                self.assertIn("PASS", output.getvalue())
 
     def test_retention_check_is_skipped_visibly_without_expected_days(self):
         with patch("common.checks.aws_s3") as aws, redirect_stdout(io.StringIO()) as output:

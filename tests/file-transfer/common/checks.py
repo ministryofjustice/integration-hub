@@ -4,22 +4,30 @@ from common.aws import aws_s3
 def lifecycle_expiry_days(rules, key_prefix):
     """Return the expiry days of enabled rules that cover key_prefix.
 
-    A rule covers the prefix when its own prefix is empty or starts the prefix.
-    Rules filtered by tags or size are not treated as covering it.
-    Date-based expiration is fail closed because it cannot be compared reliably
-    with a configured day count.
+    Prefix-only rules must cover the whole key_prefix. Overlapping tag/size
+    filters and covering date-based expiration fail closed because they cannot
+    guarantee a fixed retention day count.
     """
     days = []
     for rule in rules:
         if rule.get("Status") != "Enabled":
             continue
-        rule_filter = rule.get("Filter", {})
-        if set(rule_filter) - {"Prefix"}:
+        expiration = rule.get("Expiration", {})
+        if expiration.get("Days") is None and expiration.get("Date") is None:
             continue
-        rule_prefix = rule_filter.get("Prefix", rule.get("Prefix", ""))
+        rule_filter = rule.get("Filter", {})
+        rule_prefix = rule_filter.get(
+            "Prefix", rule_filter.get("And", {}).get("Prefix", rule.get("Prefix", ""))
+        )
+        if set(rule_filter) - {"Prefix"}:
+            if key_prefix.startswith(rule_prefix) or rule_prefix.startswith(key_prefix):
+                raise RuntimeError(
+                    f"Lifecycle rule for {rule_prefix or 'the bucket'} uses tag or size filters, "
+                    "so effective retention cannot be verified for the pickup prefix."
+                )
+            continue
         if not key_prefix.startswith(rule_prefix):
             continue
-        expiration = rule.get("Expiration", {})
         if expiration.get("Date") is not None:
             raise RuntimeError(
                 f"Lifecycle rule for {rule_prefix or 'the bucket'} uses date-based "
