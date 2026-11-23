@@ -1,120 +1,132 @@
+import hashlib
 import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from common import delivery as harness
+from urllib.parse import quote
+
+from common.aws import INCOMING_BUCKET
+from common.routes import hosted_pickup_route, presigned_route, s3_route
+
+HOSTED_ENVIRONMENT = {"FILE_TRANSFER_HOSTED_PICKUP_BUCKET": "hosted-test-bucket"}
+PRESIGNED_ENVIRONMENT = {
+    "FILE_TRANSFER_PRESIGNED_PICKUP_BUCKET": "pickup-test-bucket",
+    "FILE_TRANSFER_PRESIGNED_RECIPIENT_ID": "test-recipient",
+    "FILE_TRANSFER_PRESIGNED_INCOMING_PREFIX": "test-recipient/uploads/",
+}
 
 
-class HarnessTestCase(unittest.TestCase):
-    def setUp(self):
-        """Give each test a fresh simulated S3 service and clock."""
-        self.elapsed = 0
-        self.uploaded = b""
-        self.upload_metadata = {}
-        self.upload_content_type = ""
-        self.incoming_key = ""
-        self.destination_key = ""
+def hosted():
+    return hosted_pickup_route(HOSTED_ENVIRONMENT)
+
+
+def presigned(**extra):
+    return presigned_route({**PRESIGNED_ENVIRONMENT, **extra})
+
+
+def option(arguments, name):
+    return arguments[arguments.index(name) + 1]
+
+
+class FakeS3:
+    """Simulate uploads to the incoming bucket being delivered to a route's destination.
+
+    Direct routes write to destination_prefix + the uploaded key's relative path.
+    Pickup routes write to <recipient>/<64 hex>/<filename>, like the notifier.
+    Options model delivery faults the tests must catch.
+    """
+
+    def __init__(self, route, stale_replacement=False, leftover=False, never_deliver=False,
+                 corrupt=False, similar_key_first=False):
+        self.route = route
+        self.stale_replacement = stale_replacement
+        self.leftover = leftover
+        self.never_deliver = never_deliver
+        self.corrupt = corrupt
+        self.similar_key_first = similar_key_first
+        self.objects = {}
+        self.heads = {}
+        self.incoming = {}
+        self.uploads = 0
         self.listings = 0
         self.calls = []
-        self.corrupt_delivery = False
-        self.never_deliver = False
-        self.local_paths = []
-        aws_patch = patch.object(harness, "aws_s3", side_effect=self.fake_aws)
-        self.aws = aws_patch.start()
-        self.addCleanup(aws_patch.stop)
-        clock_patch = patch.object(harness.time, "monotonic", side_effect=lambda: self.elapsed)
-        clock_patch.start()
-        self.addCleanup(clock_patch.stop)
-        sleep_patch = patch.object(harness.time, "sleep", side_effect=self.advance_time)
-        sleep_patch.start()
-        self.addCleanup(sleep_patch.stop)
 
-    def fake_concurrent_aws(self, operation, *arguments, timeout=30):
-        """Simulate S3 for overlapping uploads, keeping each file's bytes separately.
+    def _deliver(self, relative, data, metadata, content_type):
+        key = self.route.destination_prefix + relative
+        if self.route.recipient_id:
+            name = metadata.get("original-file-name", relative).replace("\\", "/").rsplit("/", 1)[-1]
+            pickup_id = hashlib.sha256(f"{relative}{self.uploads}".encode()).hexdigest()
+            key = f"{self.route.destination_prefix}{pickup_id}/{name}"
+        self.objects[key] = data
+        filename = key.rsplit("/", 1)[-1]
+        if self.route.recipient_id:
+            head = {
+                "VersionId": "pickup-version", "ContentType": "application/octet-stream",
+                "ContentDisposition": "attachment; filename*=UTF-8''" + quote(filename, safe=""),
+                "ServerSideEncryption": "aws:kms", "SSEKMSKeyId": "key", "Metadata": {},
+            }
+        else:
+            head = {
+                "ContentType": content_type, "Metadata": metadata,
+                "ServerSideEncryption": "aws:kms", "SSEKMSKeyId": "key",
+            }
+        self.heads[key] = head
+        if self.leftover:
+            self.objects[key + ".part"] = b"partial"
 
-        The barrier waits for all uploads to start. A serial implementation would
-        time out here. The lock protects shared test data while workers update it.
-        """
-        self.assertGreater(timeout, 0)
-        bucket = arguments[arguments.index("--bucket") + 1]
+    def __call__(self, operation, *arguments, timeout=30):
+        if timeout <= 0:
+            raise AssertionError("Timeout must stay positive.")
+        bucket = option(arguments, "--bucket")
+        self.calls.append((operation, bucket))
         if operation == "put-object":
-            self.assertEqual(bucket, harness.INCOMING_BUCKET)
-            self.upload_barrier.wait(timeout=5)
-            incoming_key = arguments[arguments.index("--key") + 1]
-            source = Path(arguments[arguments.index("--body") + 1])
-            relative_key = incoming_key[len(harness.INCOMING_PREFIX):]
-            with self.concurrent_lock:
-                self.uploaded_by_key[relative_key] = source.read_bytes()
-            return {}
-        self.assertEqual(bucket, harness.DESTINATION_BUCKET)
-        if operation == "list-objects-v2":
-            prefix = arguments[arguments.index("--prefix") + 1]
-            with self.concurrent_lock:
-                return {
-                    "Contents": [
-                        {"Key": harness.DESTINATION_PREFIX + key}
-                        for key in self.uploaded_by_key
-                        if key.startswith(prefix[len(harness.DESTINATION_PREFIX):])
-                    ]
-                }
-        if operation == "get-object":
-            destination_key = arguments[arguments.index("--key") + 1]
-            relative_key = destination_key[len(harness.DESTINATION_PREFIX):]
-            destination = Path(arguments[-1])
-            with self.concurrent_lock:
-                destination.write_bytes(self.uploaded_by_key[relative_key])
-                self.downloaded_keys.append(destination_key)
-            return {}
-        self.fail(f"Unexpected AWS operation: {operation}")
-
-    def advance_time(self, seconds):
-        """Move the simulated clock forward so timeout tests need no real waiting."""
-        self.elapsed += seconds
-
-    def fake_aws(self, operation, *arguments, timeout=30):
-        """Simulate upload, exact-key listing, download, and HeadObject."""
-        self.calls.append(operation)
-        self.assertGreater(timeout, 0)
-        bucket = arguments[arguments.index("--bucket") + 1]
-        if operation == "put-object":
-            self.assertEqual(bucket, harness.INCOMING_BUCKET)
-            self.incoming_key = arguments[arguments.index("--key") + 1]
-            self.assertTrue(self.incoming_key.startswith(harness.INCOMING_PREFIX))
-            self.listings = 0
-            self.destination_key = (
-                harness.DESTINATION_PREFIX
-                + self.incoming_key[len(harness.INCOMING_PREFIX):]
-            )
-            source = Path(arguments[arguments.index("--body") + 1])
-            self.local_paths.append(source)
-            self.uploaded = source.read_bytes()
+            assert bucket == INCOMING_BUCKET
+            key = option(arguments, "--key")
+            assert key.startswith(self.route.incoming_prefix), key
+            relative = key[len(self.route.incoming_prefix):]
+            data = Path(option(arguments, "--body")).read_bytes()
+            metadata = {}
             if "--metadata" in arguments:
-                self.upload_metadata = json.loads(arguments[arguments.index("--metadata") + 1])
-            if "--content-type" in arguments:
-                self.upload_content_type = arguments[arguments.index("--content-type") + 1]
+                metadata = json.loads(option(arguments, "--metadata"))
+            content_type = option(arguments, "--content-type") if "--content-type" in arguments else None
+            self.uploads += 1
+            self.incoming[key] = (data, metadata, content_type)
+            if not self.never_deliver and not (self.stale_replacement and self.uploads > 1):
+                self._deliver(relative, data, metadata, content_type)
             return {}
-        self.assertEqual(bucket, harness.DESTINATION_BUCKET)
+        assert bucket == self.route.destination_bucket, bucket
         if operation == "list-objects-v2":
-            self.assertEqual(arguments[arguments.index("--prefix") + 1], self.destination_key)
+            prefix = option(arguments, "--prefix")
             self.listings += 1
-            if self.never_deliver:
-                return {}
-            if self.listings == 1:
-                return {"Contents": [{"Key": self.destination_key + ".old"}]}
-            return {"Contents": [{"Key": self.destination_key}]}
+            if self.similar_key_first and self.listings == 1:
+                return {"Contents": [{"Key": prefix + ".old"}]}
+            return {"Contents": [{"Key": key} for key in sorted(self.objects) if key.startswith(prefix)]}
         if operation == "get-object":
-            self.assertEqual(arguments[arguments.index("--key") + 1], self.destination_key)
-            destination = Path(arguments[-1])
-            self.local_paths.append(destination)
-            destination.write_bytes(b"incorrect" if self.corrupt_delivery else self.uploaded)
+            key = option(arguments, "--key")
+            Path(arguments[-1]).write_bytes(b"corrupt" if self.corrupt else self.objects[key])
             return {}
         if operation == "head-object":
-            self.assertEqual(arguments[arguments.index("--key") + 1], self.destination_key)
-            return {
-                "ContentLength": len(self.uploaded),
-                "ContentType": self.upload_content_type,
-                "Metadata": self.upload_metadata,
-                "ServerSideEncryption": "aws:kms",
-                "SSEKMSKeyId": "test-destination-key",
-            }
-        self.fail(f"Unexpected AWS operation: {operation}")
+            return self.heads[option(arguments, "--key")]
+        raise AssertionError(f"Unexpected AWS operation: {operation}")
+
+
+class FakeS3TestCase(unittest.TestCase):
+    """Run a test against FakeS3 with a simulated clock, so timeouts need no real waiting."""
+
+    route_factory = staticmethod(s3_route)
+    fake_options = {}
+
+    def setUp(self):
+        self.route = self.route_factory()
+        self.elapsed = 0
+        self.s3 = FakeS3(self.route, **self.fake_options)
+        for replacement in (
+            patch("common.delivery.aws_s3", side_effect=lambda *a, **k: self.s3(*a, **k)),
+            patch("time.monotonic", side_effect=lambda: self.elapsed),
+            patch("time.sleep", side_effect=self.advance),
+        ):
+            replacement.start()
+            self.addCleanup(replacement.stop)
+
+    def advance(self, seconds):
+        self.elapsed += seconds
