@@ -20,5 +20,5 @@ resource "pagerduty_business_service" "integration_hub" {
 
   name        = each.value.name
   description = each.value.description
-  team        = var.pagerduty_team_id
+  team        = pagerduty_team.integration_hub.id
 }

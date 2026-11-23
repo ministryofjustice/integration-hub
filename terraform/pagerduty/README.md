@@ -5,7 +5,8 @@ PRs also run a production plan. After merge, `main` runs a fresh plan and apply.
 
 ## What this creates
 
-This Terraform configuration defines three PagerDuty business services:
+Terraform manages the **Integration Hub** PagerDuty team and assigns it as
+the owner of these three business services:
 
 - Managed File Transfer
 - API Platform
@@ -17,14 +18,16 @@ integrations, escalation policies, schedules or Slack connections.
 
 ## Before running
 
-Confirm the PagerDuty account before running a plan. Team assignment is
-optional; set `pagerduty_team_id` to assign the services to a team.
+Confirm the PagerDuty account before running a plan. If the Integration Hub
+team already exists, arrange to import it at `pagerduty_team.integration_hub`
+before merging rather than creating a duplicate. Team membership is not
+managed here.
 
 Set the `PRODUCTION_ACCOUNT_ID` repository secret in Integration Hub to the
 12-digit production AWS account ID. Both plan and apply use OIDC to assume
 `role/github-actions/integration-hub-pagerduty`. They need the existing state
 bucket, KMS access and `pagerduty/api-key` secret in that account. Confirm the
-key can manage the business services before merging. Store the token on one
+key can manage the team and business services before merging. Store the token on one
 line, not as JSON.
 
 The workflow reads a token only when it runs. Do not put it in GitHub, code,
