@@ -4,9 +4,3 @@ variable "pagerduty_token" {
   sensitive   = true
   ephemeral   = true
 }
-
-variable "pagerduty_team_id" {
-  description = "Optional override for the business services' owning team. Defaults to the Terraform-managed Integration Hub team."
-  type        = string
-  default     = null
-}

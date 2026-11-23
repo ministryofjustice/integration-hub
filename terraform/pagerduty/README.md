@@ -6,7 +6,7 @@ PRs also run a production plan. After merge, `main` runs a fresh plan and apply.
 ## What this creates
 
 Terraform manages the **Integration Hub** PagerDuty team and assigns it as
-the default owner of these three business services:
+the owner of these three business services:
 
 - Managed File Transfer
 - API Platform
@@ -22,9 +22,6 @@ Confirm the PagerDuty account before running a plan. If the Integration Hub
 team already exists, arrange to import it at `pagerduty_team.integration_hub`
 before merging rather than creating a duplicate. Team membership is not
 managed here.
-
-Set `pagerduty_team_id` only if another team should own the business services.
-The override changes service ownership, not which team Terraform manages.
 
 Set the `PRODUCTION_ACCOUNT_ID` repository secret in Integration Hub to the
 12-digit production AWS account ID. Both plan and apply use OIDC to assume
