@@ -1,100 +1,13 @@
 import json
-import math
-import subprocess
-import sys
 import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-
-INCOMING_BUCKET = "integration-hub-file-transfer-test-incoming"
-CLEAN_BUCKET = "integration-hub-file-transfer-test-clean"
-DESTINATION_BUCKET = "integration-hub-file-transfer-test-test-harness"
-INCOMING_PREFIX = "test-harness/push-to-s3/"
-DESTINATION_PREFIX = "push-to-s3/"
-REGION = "eu-west-2"
-
-
-def aws_cli(service, operation, *arguments, timeout=30):
-    """Run an AWS CLI command with a time limit and return parsed JSON output.
-
-    Use the AWS CLI's current credentials and avoid exposing command output in
-    error messages.
-    """
-    try:
-        result = subprocess.run(
-            [
-                "aws", service, operation, *arguments,
-                "--region", REGION,
-                "--output", "json",
-                "--no-cli-pager",
-                "--cli-connect-timeout", "10",
-                "--cli-read-timeout", str(math.ceil(timeout)),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        raise RuntimeError(f"AWS {operation} failed or timed out.") from error
-    return json.loads(result.stdout)
-
-
-def aws_s3(operation, *arguments, timeout=30):
-    """Run an S3 command through the shared AWS command/error handling helper."""
-    return aws_cli("s3api", operation, *arguments, timeout=timeout)
-
-
-def run_terminal_routing_test(environment, fixture, expected_area, content_type,
-                              timeout_seconds=300, poll_seconds=5):
-    """Upload a fixture and check which terminal bucket receives its exact key."""
-    if environment not in ("development", "test"):
-        raise ValueError("Routing tests only support development and test.")
-    if expected_area not in ("quarantine", "investigation"):
-        raise ValueError("Expected area must be quarantine or investigation.")
-    if any(not math.isfinite(value) or value <= 0 for value in (timeout_seconds, poll_seconds)):
-        raise ValueError("Timeout and polling interval must be finite and positive.")
-    if not fixture.is_file():
-        raise FileNotFoundError(f"{expected_area.capitalize()} fixture not found: {fixture}")
-
-    bucket_prefix = f"integration-hub-file-transfer-{environment}-"
-    object_key = f"test-harness/{expected_area}/{uuid.uuid4().hex}/{fixture.name}"
-    destination = f"s3://{bucket_prefix}{expected_area}/{object_key}"
-    deadline = time.monotonic() + timeout_seconds
-
-    def request_timeout(message):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError(message)
-        return min(30, remaining)
-
-    print(f"File-transfer test: L2 {expected_area} routing.", flush=True)
-    print(f"Uploading s3://{bucket_prefix}incoming/{object_key}", flush=True)
-    aws_s3(
-        "put-object", "--bucket", bucket_prefix + "incoming", "--key", object_key,
-        "--body", str(fixture), "--content-type", content_type,
-        timeout=request_timeout("Timed out before uploading the routing fixture."),
-    )
-
-    areas = [area for area in ("clean", "quarantine", "investigation") if area != expected_area]
-    areas.append(expected_area)
-    timeout_message = f"Timed out waiting for {destination}."
-    while True:
-        for area in areas:
-            listing = aws_s3(
-                "list-objects-v2", "--bucket", bucket_prefix + area,
-                "--prefix", object_key, timeout=request_timeout(timeout_message),
-            )
-            if not any(item["Key"] == object_key for item in listing.get("Contents", [])):
-                continue
-            if area != expected_area:
-                raise RuntimeError(f"Fixture arrived in {area}, not {expected_area}: {object_key}")
-            print(f"PASS: fixture arrived at {destination}", flush=True)
-            return
-        time.sleep(min(poll_seconds, request_timeout(timeout_message)))
+from common.aws import (
+    INCOMING_BUCKET, DESTINATION_BUCKET, INCOMING_PREFIX, DESTINATION_PREFIX, aws_s3,
+)
 
 
 def run_delivery_test(test_name, scenarios_for_run, verify_metadata=False,
@@ -304,26 +217,3 @@ def run_concurrent_delivery_test(file_count=3, timeout_seconds=300, poll_seconds
             print(f"PASS: {scenario} arrived unchanged at {destination_key}.", flush=True)
 
     print(f"PASS: all {file_count} concurrent files arrived independently.", flush=True)
-
-
-def run_cli(test_name, scenarios_for_run, verify_metadata=False):
-    """Run L1 or L2 from the command line; return 0 for success or 1 for failure.
-
-    The workflow uses this exit code to decide whether its test step passed.
-    """
-    try:
-        run_delivery_test(test_name, scenarios_for_run, verify_metadata=verify_metadata)
-    except (RuntimeError, OSError, ValueError) as error:
-        print(f"FAIL: {error}", file=sys.stderr)
-        return 1
-    return 0
-
-
-def run_concurrent_cli():
-    """Run just the concurrent-delivery check with a workflow-friendly exit code."""
-    try:
-        run_concurrent_delivery_test()
-    except (RuntimeError, OSError, ValueError) as error:
-        print(f"FAIL: {error}", file=sys.stderr)
-        return 1
-    return 0

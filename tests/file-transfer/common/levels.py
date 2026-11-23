@@ -6,33 +6,38 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from harness import REGION, run_delivery_test
+from common.aws import REGION
+from common.delivery import run_delivery_test, run_concurrent_delivery_test
+from common.fixtures import MIB, SAMPLE_SIZES_MIB, performance_scenarios
 
 
-MIB = 1024 * 1024
-SAMPLE_SIZES_MIB = (1, 1, 1, 16)
 TIMEOUT_SECONDS = 600
+
+
 POLL_SECONDS = 2
 
 
-def performance_scenarios(run_token):
-    """Create three 1 MiB samples and one 16 MiB file, totalling 19 MiB.
+def run_cli(test_name, scenarios_for_run, verify_metadata=False):
+    """Run L1 or L2 from the command line; return 0 for success or 1 for failure.
 
-    Files are synthetic and include the run ID and sample number. Sizes are
-    deliberately bounded; this is not a multipart or maximum-size load test.
+    The workflow uses this exit code to decide whether its test step passed.
     """
-    scenarios = []
-    for index, size_mib in enumerate(SAMPLE_SIZES_MIB, start=1):
-        size_bytes = size_mib * MIB
-        marker = f"L4 synthetic fixture: {run_token}:{index}\n".encode()
-        block = marker + bytes(range(256))
-        fixture = (block * (size_bytes // len(block) + 1))[:size_bytes]
-        scenarios.append((
-            f"{size_mib} MiB sample {index}",
-            f"baseline-{index}-{size_mib}mib.bin",
-            fixture,
-        ))
-    return scenarios
+    try:
+        run_delivery_test(test_name, scenarios_for_run, verify_metadata=verify_metadata)
+    except (RuntimeError, OSError, ValueError) as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def run_concurrent_cli():
+    """Run just the concurrent-delivery check with a workflow-friendly exit code."""
+    try:
+        run_concurrent_delivery_test()
+    except (RuntimeError, OSError, ValueError) as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def summarise_measurements(measurements):
@@ -152,7 +157,3 @@ def run_l4_cli(argv=None):
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
     return 0 if report["status"] == "completed" else 1
-
-
-if __name__ == "__main__":
-    sys.exit(run_l4_cli())
