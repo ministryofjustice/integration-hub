@@ -2,7 +2,6 @@ import io
 import threading
 import unittest
 from contextlib import redirect_stdout
-from pathlib import Path
 from unittest.mock import patch
 
 from common import delivery
@@ -10,7 +9,7 @@ from common.fixtures import (
     functional_scenarios, nested_directory_scenarios, smoke_scenarios,
 )
 from common.routes import s3_route
-from unit.support import FakeS3, FakeS3TestCase, hosted, option, presigned
+from unit.support import FakeS3, FakeS3TestCase, hosted, presigned
 
 
 def quiet(function, *args, **kwargs):
@@ -138,6 +137,33 @@ class RouteSpecificDeliveryTests(unittest.TestCase):
         self.assertIn(f"pickup/{token}/payload.txt", s3.objects)
         readers = {bucket for operation, bucket in s3.calls if operation != "put-object"}
         self.assertEqual(readers, {"hosted-test-bucket"})
+
+    def test_invalid_destination_headers_fail_without_recording_verified_delivery(self):
+        cases = (
+            ({"ContentType": "text/plain"}, "unexpected content type"),
+            ({"Metadata": {}}, "metadata was not preserved"),
+            ({"Metadata": {"file-transfer-test-run-id": "another-run"}}, "metadata was not preserved"),
+            ({"ServerSideEncryption": "AES256"}, "not encrypted with KMS"),
+            ({"SSEKMSKeyId": None}, "not encrypted with KMS"),
+        )
+        for route in (s3_route(), hosted()):
+            for headers, error in cases:
+                with self.subTest(route=route.name, headers=headers):
+                    s3 = FakeS3(route)
+                    measurements = []
+
+                    def wrong_headers(operation, *arguments, timeout=30):
+                        response = s3(operation, *arguments, timeout=timeout)
+                        return {**response, **headers} if operation == "head-object" else response
+
+                    with patch("common.delivery.aws_s3", side_effect=wrong_headers), \
+                            self.assertRaisesRegex(RuntimeError, error):
+                        quiet(
+                            delivery.run_delivery_test, route, "L2", smoke_scenarios,
+                            verify_metadata=True, timeout_seconds=30, poll_seconds=1,
+                            measurements=measurements,
+                        )
+                    self.assertEqual(measurements, [])
 
     def test_nested_directories_keep_their_relative_path(self):
         s3, token, output = self.run_delivery(

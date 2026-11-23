@@ -8,12 +8,8 @@ from push_to_s3_with_hosted_pickup import resilience as hosted_resilience
 from unit.support import HOSTED_ENVIRONMENT
 
 
-def names(mocks):
-    return [name for name, mock in mocks.items() if mock.called]
-
-
 class ResilienceWiringTests(unittest.TestCase):
-    def run_cli(self, module, environment, argv=(), targets=("common.resilience",)):
+    def run_cli(self, module, environment, argv=()):
         patches = {
             "concurrent": patch("common.resilience.run_concurrent_delivery_test"),
             "overwrite": patch("common.resilience.run_overwrite_test"),

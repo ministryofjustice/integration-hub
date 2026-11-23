@@ -9,17 +9,55 @@ from unittest.mock import patch
 
 from common import aws, levels
 from common.fixtures import MIB, smoke_scenarios
-from unit.support import FakeS3TestCase, hosted, presigned
+from unit.support import FakeS3TestCase
 
 
 class PerformanceTests(FakeS3TestCase):
-    """A one-second poll makes every file's observed delivery take one simulated second."""
+    def test_completed_report_groups_samples_and_uses_total_verified_time_for_rates(self):
+        durations = {
+            "put-object": iter((4, 1, 2, 3)),
+            "list-objects-v2": iter((1, 1, 1, 1)),
+            "get-object": iter((5, 3, 5, 2)),
+        }
 
-    def setUp(self):
-        super().setUp()
-        patcher = patch("common.levels.POLL_SECONDS", 1)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        def timed(operation, *arguments, timeout=30):
+            self.elapsed += next(durations[operation])
+            return self.s3(operation, *arguments, timeout=timeout)
+
+        with tempfile.TemporaryDirectory() as directory, \
+                patch("common.delivery.aws_s3", side_effect=timed):
+            report_path, summary_path = Path(directory) / "l4.json", Path(directory) / "summary.md"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                result = levels.run_performance_cli(
+                    "push-to-s3", ["--report", str(report_path), "--summary", str(summary_path)]
+                )
+            report = json.loads(report_path.read_text())
+            summary = summary_path.read_text()
+
+        self.assertEqual((result, report["status"]), (0, "completed"))
+        self.assertEqual(len(report["measurements"]), report["expected_files"])
+        self.assertEqual(sum(sample["size_bytes"] for sample in report["measurements"]),
+                         report["expected_bytes"])
+        self.assertEqual(report["baselines"], [
+            {
+                "size_bytes": MIB,
+                "sample_count": 3,
+                "min_observed_delivery_seconds": 2,
+                "median_observed_delivery_seconds": 3,
+                "max_observed_delivery_seconds": 5,
+                "effective_mib_per_second": 3 / 23,
+            },
+            {
+                "size_bytes": 16 * MIB,
+                "sample_count": 1,
+                "min_observed_delivery_seconds": 4,
+                "median_observed_delivery_seconds": 4,
+                "max_observed_delivery_seconds": 4,
+                "effective_mib_per_second": 16 / 6,
+            },
+        ])
+        self.assertIn("| 1 | 3 | 2.000 | 3.000 | 5.000 | 0.130 |", summary)
+        self.assertIn("| 16 | 1 | 4.000 | 4.000 | 4.000 | 2.667 |", summary)
 
     def test_a_failure_keeps_only_verified_samples(self):
         calls = {"puts": 0}
@@ -42,7 +80,16 @@ class PerformanceTests(FakeS3TestCase):
             self.assertEqual(result, 1)
             self.assertEqual((report["status"], len(report["measurements"])), ("failed", 1))
             self.assertIn("do not match", report["error"])
+            self.assertEqual(report["baselines"], [{
+                "size_bytes": MIB,
+                "sample_count": 1,
+                "min_observed_delivery_seconds": 0,
+                "median_observed_delivery_seconds": 0,
+                "max_observed_delivery_seconds": 0,
+                "effective_mib_per_second": None,
+            }])
             self.assertIn("1/4", summary_path.read_text())
+            self.assertIn("| 1 | 1 | 0.000 | 0.000 | 0.000 | n/a |", summary_path.read_text())
 
     def test_a_timeout_writes_a_failed_report(self):
         self.s3.never_deliver = True

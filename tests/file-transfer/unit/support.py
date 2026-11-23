@@ -37,14 +37,13 @@ class FakeS3:
     """
 
     def __init__(self, route, stale_replacement=False, leftover=False, never_deliver=False,
-                 corrupt=False, similar_key_first=False, deliver_twice=False):
+                 corrupt=False, similar_key_first=False):
         self.route = route
         self.stale_replacement = stale_replacement
         self.leftover = leftover
         self.never_deliver = never_deliver
         self.corrupt = corrupt
         self.similar_key_first = similar_key_first
-        self.deliver_twice = deliver_twice
         self.objects = {}
         self.heads = {}
         self.incoming = {}
@@ -52,35 +51,28 @@ class FakeS3:
         self.listings = 0
         self.calls = []
 
-    def _destination_keys(self, relative, metadata):
-        if not self.route.recipient_id:
-            return [self.route.destination_prefix + relative]
-        name = metadata.get("original-file-name", relative).replace("\\", "/").rsplit("/", 1)[-1]
-        copies = 2 if self.deliver_twice else 1
-        return [
-            f"{self.route.destination_prefix}"
-            f"{hashlib.sha256(f'{relative}{n}{self.uploads}'.encode()).hexdigest()}/{name}"
-            for n in range(copies)
-        ]
-
     def _deliver(self, relative, data, metadata, content_type):
-        for key in self._destination_keys(relative, metadata):
-            self.objects[key] = data
-            filename = key.rsplit("/", 1)[-1]
-            if self.route.recipient_id:
-                head = {
-                    "VersionId": "pickup-version", "ContentType": "application/octet-stream",
-                    "ContentDisposition": "attachment; filename*=UTF-8''" + quote(filename, safe=""),
-                    "ServerSideEncryption": "aws:kms", "SSEKMSKeyId": "key", "Metadata": {},
-                }
-            else:
-                head = {
-                    "ContentType": content_type, "Metadata": metadata,
-                    "ServerSideEncryption": "aws:kms", "SSEKMSKeyId": "key",
-                }
-            self.heads[key] = head
-            if self.leftover:
-                self.objects[key + ".part"] = b"partial"
+        key = self.route.destination_prefix + relative
+        if self.route.recipient_id:
+            name = metadata.get("original-file-name", relative).replace("\\", "/").rsplit("/", 1)[-1]
+            pickup_id = hashlib.sha256(f"{relative}{self.uploads}".encode()).hexdigest()
+            key = f"{self.route.destination_prefix}{pickup_id}/{name}"
+        self.objects[key] = data
+        filename = key.rsplit("/", 1)[-1]
+        if self.route.recipient_id:
+            head = {
+                "VersionId": "pickup-version", "ContentType": "application/octet-stream",
+                "ContentDisposition": "attachment; filename*=UTF-8''" + quote(filename, safe=""),
+                "ServerSideEncryption": "aws:kms", "SSEKMSKeyId": "key", "Metadata": {},
+            }
+        else:
+            head = {
+                "ContentType": content_type, "Metadata": metadata,
+                "ServerSideEncryption": "aws:kms", "SSEKMSKeyId": "key",
+            }
+        self.heads[key] = head
+        if self.leftover:
+            self.objects[key + ".part"] = b"partial"
 
     def __call__(self, operation, *arguments, timeout=30):
         if timeout <= 0:

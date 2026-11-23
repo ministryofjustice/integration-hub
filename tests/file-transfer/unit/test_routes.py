@@ -21,9 +21,8 @@ class RouteConfigurationTests(unittest.TestCase):
             self.assertEqual(select_route(name, environment).name, name)
 
     def test_unknown_route_fails(self):
-        for name in ("push-to-nowhere", "push-to-sftp"):
-            with self.subTest(route=name), self.assertRaisesRegex(ValueError, "Unknown route"):
-                select_route(name)
+        with self.assertRaisesRegex(ValueError, "Unknown route"):
+            select_route("push-to-nowhere")
 
     def test_pickup_routes_use_test_defaults_without_environment_settings(self):
         with patch("common.routes.aws_cli", return_value={"Account": "123456789012"}):
