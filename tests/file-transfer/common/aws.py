@@ -4,22 +4,11 @@ import subprocess
 
 
 INCOMING_BUCKET = "integration-hub-file-transfer-test-incoming"
-
-
 CLEAN_BUCKET = "integration-hub-file-transfer-test-clean"
-
-
 DESTINATION_BUCKET = "integration-hub-file-transfer-test-test-harness"
-
-
 INCOMING_PREFIX = "test-harness/push-to-s3/"
-
-
 DESTINATION_PREFIX = "push-to-s3/"
-
-
 REGION = "eu-west-2"
-
 
 def aws_cli(service, operation, *arguments, timeout=30):
     """Run an AWS CLI command with a time limit and return parsed JSON output.

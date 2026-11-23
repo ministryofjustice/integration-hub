@@ -15,16 +15,9 @@ from common.delivery import run_delivery_test
 DISPATCH_SECRET_NAME = (
     "integration-hub-file-transfer/file-dispatch/test-harness/push-to-s3/"
 )
-
-
 WRITER_FUNCTION_NAME = "integration-hub-file-transfer-push-to-s3"
-
-
 WRITER_QUEUE_NAME = "integration-hub-file-transfer-push-to-s3"
-
-
 SEED_FILE_NAME = "duplicate-idempotency-seed.bin"
-
 
 def build_duplicate_action_request(
     account_id, source_object, secret_arn, secret_version_id, requested_at=None
