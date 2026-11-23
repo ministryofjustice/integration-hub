@@ -144,8 +144,26 @@ class DuplicateActionTests(unittest.TestCase):
                 self.assertEqual(len(calls), 2)
                 self.assertIs(calls[0], calls[1])
                 self.assertEqual(calls[0]["detail"]["data"]["action"], {"name": route.name})
+                detail = calls[0]["detail"]
+                action_id = detail["data"]["actionExecutionId"]
+                self.assertEqual(
+                    detail["metadata"].get("idempotencyKey"), f"action-request:{action_id}"
+                )
                 self.assertIn("did not copy the file twice", output)
                 patch.stopall()
+
+    def test_new_actions_for_the_same_source_have_distinct_idempotency_keys(self):
+        requests = [
+            writer.build_action_request(
+                "123456789012", SOURCE, "arn:secret", "sv", action_name=s3_route().name,
+            )
+            for _ in range(2)
+        ]
+        first, second = [request["detail"] for request in requests]
+        self.assertNotEqual(first["data"]["actionExecutionId"], second["data"]["actionExecutionId"])
+        self.assertNotEqual(
+            first["metadata"].get("idempotencyKey"), second["metadata"].get("idempotencyKey")
+        )
 
     def test_a_second_copy_fails(self):
         with self.assertRaisesRegex(RuntimeError, "another destination version"):

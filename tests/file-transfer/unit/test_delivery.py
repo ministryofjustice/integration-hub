@@ -56,6 +56,19 @@ class DeliveryTests(FakeS3TestCase):
 
 
 class FailureTests(FakeS3TestCase):
+    def test_invalid_timing_is_rejected_before_preparing_files_or_calling_aws(self):
+        def scenarios(_):
+            self.fail("Invalid timing reached fixture preparation.")
+
+        for timeout, poll in ((0, 1), (-1, 1), (1, 0), (1, -1)):
+            with self.subTest(timeout=timeout, poll=poll):
+                with self.assertRaisesRegex(ValueError, "must be positive"):
+                    quiet(
+                        delivery.run_delivery_test, self.route, "L1", scenarios,
+                        timeout_seconds=timeout, poll_seconds=poll,
+                    )
+                self.assertEqual(self.s3.calls, [])
+
     def test_missing_delivery_times_out_without_download(self):
         self.s3.never_deliver = True
         with self.assertRaisesRegex(TimeoutError, "Timed out"):
