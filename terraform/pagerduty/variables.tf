@@ -6,7 +6,7 @@ variable "pagerduty_token" {
 }
 
 variable "pagerduty_team_id" {
-  description = "Optional PagerDuty team ID to assign to the Integration Hub business services."
+  description = "Optional override for the business services' owning team. Defaults to the Terraform-managed Integration Hub team."
   type        = string
   default     = null
 }
