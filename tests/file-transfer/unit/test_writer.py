@@ -116,6 +116,17 @@ class InvokeTests(unittest.TestCase):
 
 
 class DuplicateActionTests(unittest.TestCase):
+    def test_literal_null_version_id_uses_the_etag_fallback(self):
+        route = hosted()
+        response = {
+            "VersionId": "null",
+            "ETag": '"etag-value"',
+            "LastModified": "2026-11-23T15:00:00Z",
+        }
+        with patch("common.writer.aws_s3", return_value=response):
+            identity = writer.head_destination_version(route, "pickup/test.bin")
+        self.assertEqual(identity, 'etag:"etag-value"@2026-11-23T15:00:00Z')
+
     def run_test(self, route, versions, retained=True):
         calls = []
         heads = iter(versions)
@@ -254,6 +265,20 @@ class LifecycleTests(unittest.TestCase):
                 self.assertEqual(output.getvalue(), "")
                 verify_retention_lifecycle(hosted_with_retention(1))
                 self.assertIn("PASS", output.getvalue())
+
+    def test_date_based_expiration_fails_closed(self):
+        rule = {
+            "Status": "Enabled",
+            "Filter": {},
+            "Expiration": {"Date": "2026-01-01T00:00:00Z"},
+        }
+        for rules in ([rule], [self.RULE, rule], [rule, self.RULE]):
+            with self.subTest(rules=rules), \
+                    patch("common.checks.aws_s3", return_value={"Rules": rules}), \
+                    redirect_stdout(io.StringIO()) as output:
+                with self.assertRaisesRegex(RuntimeError, "date-based expiration"):
+                    verify_retention_lifecycle(hosted_with_retention(7))
+                self.assertEqual(output.getvalue(), "")
 
 
 def hosted_with_retention(days):

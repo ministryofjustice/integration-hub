@@ -12,9 +12,9 @@ BUCKET = "pickup-test-bucket"
 CONTENT = b"Synthetic access-control fixture: run\n"
 
 
-def quiet(function, *args):
+def quiet(function, *args, **kwargs):
     with redirect_stdout(io.StringIO()):
-        return function(*args)
+        return function(*args, **kwargs)
 
 
 class AnonymousObjectTests(unittest.TestCase):
@@ -117,6 +117,27 @@ class GrantTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unexpected \\['group-b'\\], missing \\['group-a'\\]"):
             self.check([grant(group="group-b")])
 
+    def test_expected_group_must_cover_the_delivered_key(self):
+        with self.assertRaisesRegex(RuntimeError, "missing \\['group-a'\\]"):
+            quiet(
+                access.verify_grants_are_read_only_for_expected_groups,
+                "pickup-bucket",
+                "test-recipient",
+                GROUPS,
+                [grant(scope="s3://pickup-bucket/test-recipient/old-pickup/old.bin")],
+                delivered_key="test-recipient/new-pickup/new.bin",
+            )
+
+    def test_folder_wide_read_grant_covers_the_delivered_key(self):
+        quiet(
+            access.verify_grants_are_read_only_for_expected_groups,
+            "pickup-bucket",
+            "test-recipient",
+            GROUPS,
+            [grant(scope="s3://pickup-bucket/test-recipient/*")],
+            delivered_key="test-recipient/new-pickup/new.bin",
+        )
+
 
 class ExpectedGroupTests(unittest.TestCase):
     def test_groups_are_read_from_the_environment(self):
@@ -163,7 +184,11 @@ class AccessControlTestRun(unittest.TestCase):
 
     def test_all_checks_run_against_the_delivered_key(self):
         self.run_test({"return_value": KEY})
-        self.mocks["verify_grants"].assert_called_once()
+        self.assertEqual(self.mocks["verify_grants"].call_count, 2)
+        self.assertEqual(
+            self.mocks["verify_grants"].call_args.kwargs,
+            {"delivered_key": KEY},
+        )
         self.mocks["verify_anonymous_object_refused"].assert_called_once()
         self.assertEqual(self.mocks["verify_anonymous_object_refused"].call_args.args[:2], (BUCKET, KEY))
         self.mocks["verify_harness_cannot_read"].assert_called_once()

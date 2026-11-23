@@ -113,7 +113,7 @@ def head_destination_version(route, object_key):
         "head-object", "--bucket", route.destination_bucket, "--key", object_key
     )
     version_id = response.get("VersionId")
-    if version_id:
+    if version_id and version_id != "null":
         return f"version:{version_id}"
     etag, modified = response.get("ETag"), response.get("LastModified")
     if not etag or not modified:

@@ -6,6 +6,8 @@ def lifecycle_expiry_days(rules, key_prefix):
 
     A rule covers the prefix when its own prefix is empty or starts the prefix.
     Rules filtered by tags or size are not treated as covering it.
+    Date-based expiration is fail closed because it cannot be compared reliably
+    with a configured day count.
     """
     days = []
     for rule in rules:
@@ -15,9 +17,16 @@ def lifecycle_expiry_days(rules, key_prefix):
         if set(rule_filter) - {"Prefix"}:
             continue
         rule_prefix = rule_filter.get("Prefix", rule.get("Prefix", ""))
-        expiry = rule.get("Expiration", {}).get("Days")
-        if expiry is not None and key_prefix.startswith(rule_prefix):
-            days.append(expiry)
+        if not key_prefix.startswith(rule_prefix):
+            continue
+        expiration = rule.get("Expiration", {})
+        if expiration.get("Date") is not None:
+            raise RuntimeError(
+                f"Lifecycle rule for {rule_prefix or 'the bucket'} uses date-based "
+                "expiration, which cannot be verified against an expected day count."
+            )
+        if expiration.get("Days") is not None:
+            days.append(expiration["Days"])
     return days
 
 

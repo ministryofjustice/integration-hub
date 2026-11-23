@@ -104,11 +104,21 @@ def grant_covers(scope, folder):
     return scope.startswith(folder)
 
 
-def verify_grants_are_read_only_for_expected_groups(bucket, recipient, expected_groups, grants):
+def grant_covers_key(scope, bucket, key):
+    """Whether a grant scope covers the exact S3 object key."""
+    object_uri = f"s3://{bucket}/{key}"
+    if scope.endswith("*"):
+        return object_uri.startswith(scope[:-1])
+    return scope == object_uri
+
+
+def verify_grants_are_read_only_for_expected_groups(bucket, recipient, expected_groups, grants, delivered_key=None):
     """Every grant reaching the recipient's folder must be READ for an expected group.
 
     A grant that is wider than the folder counts, because it reaches the folder too.
-    Finding no grant at all fails, so a missing configuration cannot pass.
+    When a delivered key is supplied, each expected group must have READ scope that
+    reaches that key. Finding no grant at all fails, so a missing configuration
+    cannot pass.
     """
     folder = f"s3://{bucket}/{recipient}/"
     relevant = [grant for grant in grants if grant_covers(grant.get("GrantScope", ""), folder)]
@@ -126,6 +136,21 @@ def verify_grants_are_read_only_for_expected_groups(bucket, recipient, expected_
             f"The pickup folder's grantees differ from the expected groups: "
             f"unexpected {sorted(granted - expected_groups)}, missing {sorted(expected_groups - granted)}."
         )
+    if delivered_key:
+        missing_read = [
+            group for group in expected_groups
+            if not any(
+                grant["Grantee"].get("GranteeIdentifier") == group
+                and grant.get("Permission") == "READ"
+                and grant_covers_key(grant.get("GrantScope", ""), bucket, delivered_key)
+                for grant in relevant
+            )
+        ]
+        if missing_read:
+            raise RuntimeError(
+                f"The authorised groups do not have READ scope for delivered key {delivered_key}: "
+                f"missing {sorted(missing_read)}."
+            )
     print(f"PASS: {len(relevant)} grant(s) on the pickup folder are READ-only for the expected groups.", flush=True)
 
 
@@ -170,6 +195,13 @@ def run_access_control_test(route, timeout_seconds=300, poll_seconds=3):
         upload_to_incoming(route, relative_key, source, deadline)
     print("Waiting for the pickup copy.", flush=True)
     key = wait_for_delivery(route, relative_key, deadline, poll_seconds, delivered_name=name)
+    verify_grants_are_read_only_for_expected_groups(
+        route.destination_bucket,
+        route.recipient_id,
+        expected_group_ids(),
+        list_access_grants(),
+        delivered_key=key,
+    )
     verify_anonymous_object_refused(route.destination_bucket, key, content)
     verify_harness_cannot_read(route.destination_bucket, key)
 
