@@ -2,7 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from harness import run_terminal_routing_test
+from common.routing import run_terminal_routing_test
 
 
 FIXTURE = Path(__file__).with_name("test-document.pdf")

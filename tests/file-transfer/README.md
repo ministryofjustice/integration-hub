@@ -3,27 +3,37 @@
 The file-transfer tests check that synthetic files are delivered through the
 direct-to-S3 `push-to-s3` route in the test account and arrive unchanged.
 
+## Structure
+
+- [common/](common/) contains the AWS helpers, delivery and terminal-bucket
+  checks, fixtures, duplicate-action checks, and CLI/reporting code.
+- [push_to_s3/](push_to_s3/) contains the L1-L4 direct-to-S3 entry points.
+- [lifecycle/](lifecycle/) contains the investigation and quarantine entry
+  points and the approved PDF fixture.
+- [unit/](unit/) contains the local tests and their mock helpers.
+
 ## Test coverage
 
-- **Local unit tests** ([test_harness.py](test_harness.py)) mock AWS and polling
+- **Local unit tests** ([unit/](unit/)) mock AWS and polling
   to check the shared test harness, scenarios, and failure handling. This
   includes retrying terminal-bucket lookups and timing out if only a similar
   object key appears. They need no AWS credentials.
-- **L1 smoke** ([smoke_test.py](smoke_test.py)) uploads one small text file and
+- **L1 smoke** ([smoke.py](push_to_s3/smoke.py)) uploads one small text file and
   verifies its delivery.
-- **L2 functional** ([functional_test.py](functional_test.py)) checks delivery
+- **L2 functional** ([functional.py](push_to_s3/functional.py)) checks delivery
   of zero-byte, binary, 2 MiB, and special-character filename fixtures. It
   verifies file contents, metadata, and KMS encryption.
-- **L3 resilience** ([resilience_test.py](resilience_test.py)) checks delivery
+- **L3 resilience** ([resilience.py](push_to_s3/resilience.py)) checks delivery
   of concurrent files and confirms repeating the same action request does not
   create a duplicate destination version.
-- **L2 investigation routing** ([investigation_test.py](investigation_test.py))
-  uploads `test-document.pdf` and checks that it arrives in the investigation
-  bucket, failing if it is found in clean or quarantine instead.
-- **L2 quarantine routing** ([quarantine_test.py](quarantine_test.py)) uses
+- **L2 investigation routing** ([investigation.py](lifecycle/investigation.py))
+  uploads [test-document.pdf](lifecycle/test-document.pdf) and checks that it
+  arrives in the investigation bucket, failing if it is found in clean or
+  quarantine instead.
+- **L2 quarantine routing** ([quarantine.py](lifecycle/quarantine.py)) uses
   the EICAR antivirus test file and checks that it reaches quarantine rather than
   clean or investigation.
-- **L4 baseline** ([performance_test.py](performance_test.py)) measures
+- **L4 baseline** ([performance.py](push_to_s3/performance.py)) measures
   sequential delivery for three 1 MiB files and one 16 MiB file. Results are
   informational; no performance threshold is enforced.
 
@@ -36,7 +46,7 @@ negative cases.
 From the repository root, with Python 3.9 or newer:
 
 ```sh
-python3 -B -m unittest discover -s tests/file-transfer -p 'test_*.py' -v
+python3 -B -m unittest discover -s tests/file-transfer -t tests/file-transfer -p 'test_*.py' -v
 ```
 
 No additional Python packages or AWS credentials are required.
@@ -55,9 +65,10 @@ called by the Modernisation Platform Environments workflow after a successful
 test deployment.
 
 The routing checks run only against the test account. The selected branch must
-contain the test scripts and approved `test-document.pdf` fixture. The quarantine
-check uses `eicar.txt` if present, or downloads the fixture with `curl`. The
-EICAR fixture can trigger malware alerts.
+contain the test scripts and approved
+[test-document.pdf](lifecycle/test-document.pdf) fixture. The quarantine check
+uses `eicar.txt` if present, or downloads the fixture with `curl`. The EICAR
+fixture can trigger malware alerts.
 
 The harness role needs permission to upload under `test-harness/investigation/`
 and `test-harness/quarantine/` in the incoming bucket and list the clean,
@@ -65,14 +76,15 @@ investigation and quarantine buckets for those keys.
 
 ### Run the investigation routing check locally
 
-Put the approved `test-document.pdf` fixture beside the script. From the
-repository root, use AWS CLI v2 credentials for the selected environment with
+The approved [test-document.pdf](lifecycle/test-document.pdf) fixture is beside
+the investigation module. From the repository root, use AWS CLI v2 credentials
+for the selected environment with
 permission to upload under `test-harness/investigation/` in the incoming bucket
 and list the clean, quarantine and investigation buckets. This check does not
 use the `push-to-s3` prefix.
 
 ```sh
-python3 -B tests/file-transfer/investigation_test.py --environment development
+PYTHONPATH=tests/file-transfer python3 -B -m lifecycle.investigation --environment development
 ```
 
 Use `--environment test` with test-account credentials to target test instead.
@@ -82,14 +94,14 @@ Use `--environment test` with test-account credentials to target test instead.
 Use AWS CLI v2 and credentials for the selected environment with
 permission to upload under `test-harness/quarantine/` in the incoming bucket and
 list the clean, quarantine and investigation buckets. The script verifies and
-uses `eicar.txt` beside the script first. If that file is missing, unreadable or
-invalid, it uses `curl` to download and verify `eicar.com`. If neither source
+uses `eicar.txt` in [lifecycle/](lifecycle/) first. If that file is missing,
+unreadable or invalid, it uses `curl` to download and verify `eicar.com`. If neither source
 provides a valid fixture, the test fails before uploading anything. Run only
 in an authorised development or test environment: the fixture is harmless but
 can trigger malware alerts.
 
 ```sh
-python3 -B tests/file-transfer/quarantine_test.py --environment development
+PYTHONPATH=tests/file-transfer python3 -B -m lifecycle.quarantine --environment development
 ```
 
 ### Run the L4 baseline on GitHub
@@ -115,7 +127,7 @@ You need AWS CLI v2 and Python 3.9 or newer installed.
 4. Using the access keys, you can run the baseline tests:
 
 ```sh
-python3 -B tests/file-transfer/performance_test.py \
+PYTHONPATH=tests/file-transfer python3 -B -m push_to_s3.performance \
   --report /tmp/file-transfer-l4.json
 ```
 

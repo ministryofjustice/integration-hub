@@ -1,29 +1,28 @@
 import json
-import sys
 import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from harness import (
-    CLEAN_BUCKET,
-    DESTINATION_BUCKET,
-    DESTINATION_PREFIX,
-    INCOMING_PREFIX,
-    REGION,
-    aws_cli,
-    aws_s3,
-    run_concurrent_delivery_test,
-    run_delivery_test,
+from common.aws import (
+    CLEAN_BUCKET, DESTINATION_BUCKET, DESTINATION_PREFIX, INCOMING_PREFIX,
+    REGION, aws_cli, aws_s3,
 )
+from common.delivery import run_delivery_test
 
 
 DISPATCH_SECRET_NAME = (
     "integration-hub-file-transfer/file-dispatch/test-harness/push-to-s3/"
 )
+
+
 WRITER_FUNCTION_NAME = "integration-hub-file-transfer-push-to-s3"
+
+
 WRITER_QUEUE_NAME = "integration-hub-file-transfer-push-to-s3"
+
+
 SEED_FILE_NAME = "duplicate-idempotency-seed.bin"
 
 
@@ -215,18 +214,3 @@ def run_duplicate_action_test(timeout_seconds=300):
             raise RuntimeError("Duplicate action request created another destination version.")
 
     print("PASS: duplicate action request did not copy the file twice.", flush=True)
-
-
-def run_l3_cli():
-    """Run concurrent delivery, then duplicate handling; return 1 if either fails."""
-    try:
-        run_concurrent_delivery_test(timeout_seconds=120, poll_seconds=2)
-        run_duplicate_action_test(timeout_seconds=180)
-    except (RuntimeError, OSError, ValueError) as error:
-        print(f"FAIL: {error}", file=sys.stderr)
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(run_l3_cli())
