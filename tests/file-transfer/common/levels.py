@@ -7,37 +7,38 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from common.aws import REGION
-from common.delivery import run_delivery_test, run_concurrent_delivery_test
+from common.delivery import run_delivery_test
 from common.fixtures import MIB, SAMPLE_SIZES_MIB, performance_scenarios
-
+from common.routes import select_route
 
 TIMEOUT_SECONDS = 600
-
-
 POLL_SECONDS = 2
+EXPECTED_ERRORS = (RuntimeError, OSError, ValueError)
 
 
-def run_cli(test_name, scenarios_for_run, verify_metadata=False):
-    """Run L1 or L2 from the command line; return 0 for success or 1 for failure.
+def run_checks(*checks):
+    """Run callables in order; print the first failure and return a process exit code.
 
     The workflow uses this exit code to decide whether its test step passed.
+    Configuration errors, such as a missing environment variable, fail here too.
     """
     try:
-        run_delivery_test(test_name, scenarios_for_run, verify_metadata=verify_metadata)
-    except (RuntimeError, OSError, ValueError) as error:
+        for check in checks:
+            check()
+    except EXPECTED_ERRORS as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
     return 0
 
 
-def run_concurrent_cli():
-    """Run just the concurrent-delivery check with a workflow-friendly exit code."""
-    try:
-        run_concurrent_delivery_test()
-    except (RuntimeError, OSError, ValueError) as error:
-        print(f"FAIL: {error}", file=sys.stderr)
-        return 1
-    return 0
+def run_delivery_cli(route_name, test_name, scenarios_for_run, verify_metadata=False):
+    """Run L1 or L2 for a route; return 0 for success or 1 for failure."""
+    def run():
+        route = select_route(route_name)
+        run_delivery_test(
+            route, test_name, scenarios_for_run, verify_metadata=verify_metadata,
+        )
+    return run_checks(run)
 
 
 def summarise_measurements(measurements):
@@ -65,8 +66,8 @@ def summarise_measurements(measurements):
     return baselines
 
 
-def run_performance_test():
-    """Measure the normal push-to-s3 route and keep partial results on failure.
+def run_performance_test(route, scenarios_for_run=performance_scenarios):
+    """Measure one delivery route and keep partial results on failure.
 
     Slow results do not fail an agreed performance threshold because none exists
     yet. AWS errors, corrupted files and the ten-minute safety timeout still fail.
@@ -75,7 +76,7 @@ def run_performance_test():
         "schema_version": 1,
         "status": "incomplete",
         "environment": "test",
-        "route": "push-to-s3",
+        "route": route.name,
         "region": REGION,
         "run_token": uuid.uuid4().hex,
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -87,12 +88,12 @@ def run_performance_test():
     }
     try:
         run_delivery_test(
-            "L4 non-functional baseline", performance_scenarios,
+            route, "L4 non-functional baseline", scenarios_for_run,
             timeout_seconds=TIMEOUT_SECONDS, poll_seconds=POLL_SECONDS,
             run_token=report["run_token"], measurements=report["measurements"],
         )
         report["status"] = "completed"
-    except (RuntimeError, OSError, ValueError) as error:
+    except EXPECTED_ERRORS as error:
         report["status"] = "failed"
         report["error"] = str(error)
         print(f"FAIL: {error}", file=sys.stderr)
@@ -106,7 +107,7 @@ def format_summary(report):
     lines = [
         "### L4 non-functional baseline",
         "",
-        f"Status: **{report['status']}**. Verified files: "
+        f"Status: **{report['status']}**. Route: `{report['route']}`. Verified files: "
         f"{len(report['measurements'])}/{report['expected_files']}.",
         f"Run ID: `{report['run_token']}`",
         "",
@@ -135,25 +136,25 @@ def format_summary(report):
     return "\n".join(lines)
 
 
-def run_l4_cli(argv=None):
+def run_performance_cli(route_name, argv=None, scenarios_for_run=performance_scenarios):
     """Run L4 on demand, write JSON evidence and optionally append a workflow summary.
 
     Return 1 if delivery or report writing fails; do not present failures as a
     successful baseline just because performance thresholds are informational.
     """
-    parser = argparse.ArgumentParser(description="Run the bounded L4 push-to-s3 baseline.")
+    parser = argparse.ArgumentParser(description="Run the bounded L4 delivery baseline.")
     parser.add_argument("--report", type=Path, default=Path("file-transfer-l4.json"))
     parser.add_argument("--summary", type=Path)
     arguments = parser.parse_args(argv)
     try:
-        report = run_performance_test()
+        report = run_performance_test(select_route(route_name), scenarios_for_run)
         arguments.report.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
         summary = format_summary(report)
         print(summary)
         if arguments.summary:
             with arguments.summary.open("a") as summary_file:
                 summary_file.write(summary)
-    except (RuntimeError, OSError, ValueError) as error:
+    except EXPECTED_ERRORS as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
     return 0 if report["status"] == "completed" else 1

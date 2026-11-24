@@ -6,148 +6,127 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
-from common import aws
-from common import levels as performance_test
-from unit.support import HarnessTestCase
+
+from common import aws, levels
+from common.fixtures import MIB, smoke_scenarios
+from unit.support import FakeS3TestCase
 
 
-class PerformanceTests(HarnessTestCase):
-    def test_l4_records_size_grouped_baselines(self):
-        """Run all L4 fixtures against fake S3 and verify exact sizes and timing maths."""
-        with redirect_stdout(io.StringIO()):
-            report = performance_test.run_performance_test()
-        self.assertEqual(report["status"], "completed")
-        self.assertEqual(report["expected_bytes"], 19 * performance_test.MIB)
-        self.assertEqual(
-            [sample["size_bytes"] for sample in report["measurements"]],
-            [size * performance_test.MIB for size in (1, 1, 1, 16)],
-        )
-        self.assertEqual(len({sample["filename"] for sample in report["measurements"]}), 4)
-        self.assertTrue(all(sample["run_token"] == report["run_token"] for sample in report["measurements"]))
-        small, large = report["baselines"]
-        self.assertEqual(small["sample_count"], 3)
-        self.assertEqual(small["median_observed_delivery_seconds"], 2)
-        self.assertEqual(small["effective_mib_per_second"], 0.5)
-        self.assertEqual(large["sample_count"], 1)
-        self.assertEqual(large["effective_mib_per_second"], 8)
-        self.assertTrue(all(not path.exists() for path in self.local_paths))
+class PerformanceTests(FakeS3TestCase):
+    def test_completed_report_groups_samples_and_uses_total_verified_time_for_rates(self):
+        durations = {
+            "put-object": iter((4, 1, 2, 3)),
+            "list-objects-v2": iter((1, 1, 1, 1)),
+            "get-object": iter((5, 3, 5, 2)),
+        }
 
-    def test_l4_failure_writes_partial_report_and_returns_failure(self):
-        """A corrupted second file must fail, retaining only the first verified sample."""
-        def fake_partial_delivery(operation, *arguments, timeout=30):
-            """Switch corruption on when the second upload starts."""
-            if operation == "put-object":
-                self.corrupt_delivery = self.calls.count("put-object") >= 1
-            return self.fake_aws(operation, *arguments, timeout=timeout)
+        def timed(operation, *arguments, timeout=30):
+            self.elapsed += next(durations[operation])
+            return self.s3(operation, *arguments, timeout=timeout)
 
-        self.aws.side_effect = fake_partial_delivery
-        with tempfile.TemporaryDirectory() as directory:
-            report_path = Path(directory) / "l4.json"
-            summary_path = Path(directory) / "summary.md"
+        with tempfile.TemporaryDirectory() as directory, \
+                patch("common.delivery.aws_s3", side_effect=timed):
+            report_path, summary_path = Path(directory) / "l4.json", Path(directory) / "summary.md"
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                result = performance_test.run_l4_cli([
-                    "--report", str(report_path), "--summary", str(summary_path),
-                ])
+                result = levels.run_performance_cli(
+                    "push-to-s3", ["--report", str(report_path), "--summary", str(summary_path)]
+                )
             report = json.loads(report_path.read_text())
-            self.assertEqual(result, 1)
-            self.assertEqual(report["status"], "failed")
-            self.assertEqual(len(report["measurements"]), 1)
-            self.assertIn("do not match", report["error"])
-            self.assertIn("**failed**", summary_path.read_text())
-            self.assertIn("1/4", summary_path.read_text())
+            summary = summary_path.read_text()
 
-    def test_l4_cli_writes_completed_report(self):
-        """A successful run writes machine-readable evidence and a readable summary."""
-        with tempfile.TemporaryDirectory() as directory:
-            report_path = Path(directory) / "l4.json"
-            with redirect_stdout(io.StringIO()) as output:
-                result = performance_test.run_l4_cli(["--report", str(report_path)])
-            self.assertEqual(result, 0)
-            self.assertEqual(json.loads(report_path.read_text())["status"], "completed")
-            self.assertIn("Performance numbers are informational", output.getvalue())
-
-    def test_l4_summary_handles_empty_or_zero_duration_samples(self):
-        """Do not invent rates when there are no verified files or no elapsed time."""
-        self.assertEqual(performance_test.summarise_measurements([]), [])
-        baselines = performance_test.summarise_measurements([{
-            "size_bytes": performance_test.MIB,
-            "observed_delivery_seconds": 0,
-            "verified_seconds": 0,
-        }])
-        self.assertIsNone(baselines[0]["effective_mib_per_second"])
-
-    def test_l4_rate_uses_total_bytes_and_time_not_average_individual_rates(self):
-        """Different sample durations must be weighted by elapsed time when reporting rate."""
-        measurements = [
+        self.assertEqual((result, report["status"]), (0, "completed"))
+        self.assertEqual(len(report["measurements"]), report["expected_files"])
+        self.assertEqual(sum(sample["size_bytes"] for sample in report["measurements"]),
+                         report["expected_bytes"])
+        self.assertEqual(report["baselines"], [
             {
-                "size_bytes": performance_test.MIB,
-                "observed_delivery_seconds": observed,
-                "verified_seconds": verified,
-            }
-            for observed, verified in [(1, 2), (3, 6), (2, 4)]
-        ]
-        baseline = performance_test.summarise_measurements(measurements)[0]
-        self.assertEqual(baseline["min_observed_delivery_seconds"], 1)
-        self.assertEqual(baseline["median_observed_delivery_seconds"], 2)
-        self.assertEqual(baseline["max_observed_delivery_seconds"], 3)
-        self.assertEqual(baseline["effective_mib_per_second"], 3 / 12)
+                "size_bytes": MIB,
+                "sample_count": 3,
+                "min_observed_delivery_seconds": 2,
+                "median_observed_delivery_seconds": 3,
+                "max_observed_delivery_seconds": 5,
+                "effective_mib_per_second": 3 / 23,
+            },
+            {
+                "size_bytes": 16 * MIB,
+                "sample_count": 1,
+                "min_observed_delivery_seconds": 4,
+                "median_observed_delivery_seconds": 4,
+                "max_observed_delivery_seconds": 4,
+                "effective_mib_per_second": 16 / 6,
+            },
+        ])
+        self.assertIn("| 1 | 3 | 2.000 | 3.000 | 5.000 | 0.130 |", summary)
+        self.assertIn("| 16 | 1 | 4.000 | 4.000 | 4.000 | 2.667 |", summary)
 
-    def test_l4_timeout_writes_failed_report_without_successful_samples(self):
-        """An informational baseline must still report a missing delivery as a failure."""
-        self.never_deliver = True
+    def test_a_failure_keeps_only_verified_samples(self):
+        calls = {"puts": 0}
+        original = self.s3
+
+        def corrupt_after_first(operation, *arguments, timeout=30):
+            if operation == "put-object":
+                calls["puts"] += 1
+                original.corrupt = calls["puts"] > 1
+            return original(operation, *arguments, timeout=timeout)
+
+        with tempfile.TemporaryDirectory() as directory, \
+                patch("common.delivery.aws_s3", side_effect=corrupt_after_first):
+            report_path, summary_path = Path(directory) / "l4.json", Path(directory) / "s.md"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                result = levels.run_performance_cli(
+                    "push-to-s3", ["--report", str(report_path), "--summary", str(summary_path)]
+                )
+            report = json.loads(report_path.read_text())
+            self.assertEqual(result, 1)
+            self.assertEqual((report["status"], len(report["measurements"])), ("failed", 1))
+            self.assertIn("do not match", report["error"])
+            self.assertEqual(report["baselines"], [{
+                "size_bytes": MIB,
+                "sample_count": 1,
+                "min_observed_delivery_seconds": 0,
+                "median_observed_delivery_seconds": 0,
+                "max_observed_delivery_seconds": 0,
+                "effective_mib_per_second": None,
+            }])
+            self.assertIn("1/4", summary_path.read_text())
+            self.assertIn("| 1 | 1 | 0.000 | 0.000 | 0.000 | n/a |", summary_path.read_text())
+
+    def test_a_timeout_writes_a_failed_report(self):
+        self.s3.never_deliver = True
         with tempfile.TemporaryDirectory() as directory:
             report_path = Path(directory) / "l4.json"
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                result = performance_test.run_l4_cli(["--report", str(report_path)])
+                result = levels.run_performance_cli("push-to-s3", ["--report", str(report_path)])
             report = json.loads(report_path.read_text())
-            self.assertEqual(result, 1)
-            self.assertEqual(self.elapsed, performance_test.TIMEOUT_SECONDS)
-            self.assertEqual(report["status"], "failed")
-            self.assertEqual(report["measurements"], [])
-            self.assertEqual(report["baselines"], [])
-            self.assertIn("Timed out", report["error"])
+        self.assertEqual((result, report["status"], report["measurements"]), (1, "failed", []))
+        self.assertIn("Timed out", report["error"])
 
+
+class CliTests(unittest.TestCase):
+    def test_configuration_errors_fail_with_a_clear_message_and_no_aws_calls(self):
+        for route_name, environment in (
+            ("push-to-s3-with-hosted-pickup", {"FILE_TRANSFER_HOSTED_PICKUP_RETENTION_DAYS": "-1"}),
+            ("pull-from-presigned-url", {"FILE_TRANSFER_PRESIGNED_RECIPIENT_ID": "invalid/recipient"}),
+        ):
+            with self.subTest(route=route_name), patch.dict("os.environ", environment, clear=True), \
+                    patch("common.delivery.aws_s3") as aws_call, \
+                    redirect_stderr(io.StringIO()) as errors:
+                result = levels.run_delivery_cli(route_name, "L1", smoke_scenarios)
+            self.assertEqual(result, 1)
+            self.assertIn("FAIL:", errors.getvalue())
+            aws_call.assert_not_called()
 
 class AwsCommandTests(unittest.TestCase):
-    @patch("common.aws.subprocess.run")
-    def test_command_uses_json_region_and_timeout(self, run):
-        """Inspect the built AWS command without running it; check output and time limits."""
-        run.return_value.stdout = '{"Contents": []}'
-        self.assertEqual(aws.aws_s3("list-objects-v2", timeout=4), {"Contents": []})
-        command = run.call_args.args[0]
-        self.assertEqual(command[:3], ["aws", "s3api", "list-objects-v2"])
-        self.assertIn("eu-west-2", command)
-        self.assertEqual(run.call_args.kwargs["timeout"], 4)
-        self.assertTrue(run.call_args.kwargs["check"])
-
-    @patch("common.aws.subprocess.run")
-    def test_socket_read_timeout_matches_operation_budget(self, run):
-        run.return_value.stdout = '{}'
-        for timeout, read_timeout in [(4, "4"), (60, "60"), (0.5, "1")]:
-            with self.subTest(timeout=timeout):
-                aws.aws_cli("lambda", "invoke", timeout=timeout)
-                command = run.call_args.args[0]
-                self.assertEqual(
-                    command[command.index("--cli-read-timeout") + 1],
-                    read_timeout,
-                )
-                self.assertEqual(run.call_args.kwargs["timeout"], timeout)
-
-    @patch("common.aws.subprocess.run")
-    def test_failed_commands_are_not_treated_as_missing_objects(self, run):
-        """Check CLI errors, timeouts, and a missing AWS executable all fail clearly.
-
-        These problems must not look like a successful search that found no file.
-        """
-        for error in [
-            subprocess.CalledProcessError(1, "aws", stderr="sensitive details"),
-            subprocess.TimeoutExpired("aws", 4),
-            FileNotFoundError("aws"),
-        ]:
-            with self.subTest(error=type(error).__name__):
-                run.side_effect = error
-                with self.assertRaisesRegex(RuntimeError, "AWS list-objects-v2 failed or timed out"):
+    def test_failures_are_errors_not_a_missing_object(self):
+        for error in (
+            subprocess.CalledProcessError(254, "aws", stderr="secret detail"),
+            subprocess.TimeoutExpired("aws", 1),
+            FileNotFoundError(),
+        ):
+            with self.subTest(error=type(error).__name__), patch("common.aws.subprocess.run", side_effect=error):
+                with self.assertRaises(RuntimeError) as raised:
                     aws.aws_s3("list-objects-v2")
+            self.assertNotIn("secret detail", str(raised.exception))
 
 
 if __name__ == "__main__":

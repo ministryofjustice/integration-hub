@@ -1,10 +1,11 @@
 import sys
 
-from common.levels import run_l4_cli
+from common.levels import run_performance_cli
+from common.routes import PUSH_TO_S3
 
 
-def main():
-    return run_l4_cli()
+def main(argv=None):
+    return run_performance_cli(PUSH_TO_S3, argv)
 
 
 if __name__ == "__main__":
