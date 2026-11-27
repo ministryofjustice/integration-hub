@@ -17,7 +17,7 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v7.0.2'
         - 'aws-actions/configure-aws-credentials@v6.3.0'
-        - 'ministryofjustice/modernisation-platform-github-actions@v6.5.0'
+        - 'ministryofjustice/modernisation-platform-github-actions@v6.5.1'
         - 'step-security/harden-runner@v2.23.0'
     '.github/workflows/pagerduty-apply.yml':
         - 'actions/checkout@v7.0.1'
@@ -70,9 +70,9 @@ dependencies:
         commit: 'sha1-e7477775783ea5526144ba13e8db5eec57747ce8'
         owner_id: 74027027
         repo_id: 320929718
-    'ministryofjustice/modernisation-platform-github-actions@v6.5.0':
-        ref: 'v6.5.0'
-        commit: 'sha1-75a43f2d01e325fede1d7ab3d9bc7cc507fdb33d'
+    'ministryofjustice/modernisation-platform-github-actions@v6.5.1':
+        ref: 'v6.5.1'
+        commit: 'sha1-e871a076bef153a7d88291992f745cff81b54443'
         owner_id: 2203574
         repo_id: 916641947
     'step-security/harden-runner@v2.23.0':

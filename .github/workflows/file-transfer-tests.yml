@@ -75,7 +75,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: ministryofjustice/modernisation-platform-github-actions/.github/workflows/aws-secrets-management.yml@75a43f2d01e325fede1d7ab3d9bc7cc507fdb33d # v6.5.0
+    uses: ministryofjustice/modernisation-platform-github-actions/.github/workflows/aws-secrets-management.yml@e871a076bef153a7d88291992f745cff81b54443 # v6.5.1
     secrets:
       MODERNISATION_PLATFORM_ACCOUNT_NUMBER: ${{ secrets.MODERNISATION_PLATFORM_ACCOUNT_ID }}
       PASSPHRASE: ${{ secrets.PASSPHRASE }}
@@ -144,7 +144,7 @@ jobs:
 
       - name: Decrypt MP environment-management configuration
         if: github.repository == 'ministryofjustice/modernisation-platform-environments'
-        uses: ministryofjustice/modernisation-platform-github-actions/decrypt-secrets@v6.5.0
+        uses: ministryofjustice/modernisation-platform-github-actions/decrypt-secrets@v6.5.1
         with:
           environment_management: ${{ needs.fetch-secrets.outputs.environment_management }}
           PASSPHRASE: ${{ secrets.PASSPHRASE }}
