@@ -12,23 +12,32 @@ the owner of these three business services:
 - API Platform
 - Events platform
 
-Create the status page, add these services to it and link technical services
-in PagerDuty separately. This configuration does not manage alerts,
-integrations, escalation policies, schedules or Slack connections.
+Managed File Transfer depends on the existing `Integration Hub File Transfer
+High Priority Alerts` technical service. Modernisation Platform manages that
+service and its alert routing; this configuration manages only the dependency.
+No technical service dependencies are defined here for API Platform or Events platform.
+
+The public status page, its displayed services and incident-posting settings
+are managed separately in PagerDuty.
 
 ## Before running
 
 Confirm the PagerDuty account before running a plan. If the Integration Hub
 team already exists, arrange to import it at `pagerduty_team.integration_hub`
-before merging rather than creating a duplicate. Team membership is not
-managed here.
+before merging rather than creating a duplicate. To manage a membership, add
+an entry to `pagerduty_users` in [team.tf](./team.tf), keyed by username.
+The email identifies the existing PagerDuty user; `role` sets their team
+role. Import an existing membership before managing it here.
+The role applies only to the Integration Hub team, not the whole account.
 
 Set the `PRODUCTION_ACCOUNT_ID` repository secret in Integration Hub to the
 12-digit production AWS account ID. Both plan and apply use OIDC to assume
 `role/github-actions/integration-hub-pagerduty`. They need the existing state
 bucket, KMS access and `pagerduty/api-key` secret in that account. Confirm the
-key can manage the team and business services before merging. Store the token on one
-line, not as JSON.
+key can look up users, manage the team and its memberships, manage business
+services, read the supporting technical service and manage the dependency.
+Store the token on one line,
+not as JSON.
 
 The workflow reads a token only when it runs. Do not put it in GitHub, code,
 variables files or logs. Terraform marks it sensitive and ephemeral, so its
